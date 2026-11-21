@@ -1,0 +1,22 @@
+{
+  "__typename": "PullRequest",
+  "number": 7,
+  "title": "Fix typo",
+  "url": "https://github.com/o/a/pull/7",
+  "updatedAt": "2026-11-21T09:00:00Z",
+  "author": { "__typename": "User", "login": "outsider" },
+  "repository": { "name": "a", "owner": { "login": "o" } },
+  "labels": { "nodes": [] },
+  "milestone": null,
+  "assignees": { "nodes": [] },
+  "comments": { "nodes": [] },
+  "headRefName": "patch-1",
+  "isCrossRepository": true,
+  "reviewDecision": null,
+  "mergeable": "UNKNOWN",
+  "mergeStateStatus": "BLOCKED",
+  "commits": { "nodes": [ { "commit": {
+    "statusCheckRollup": null,
+    "checkSuites": { "nodes": [ { "status": "COMPLETED", "conclusion": "ACTION_REQUIRED" } ] }
+  } } ] }
+}

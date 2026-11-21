@@ -1,0 +1,16 @@
+{
+  "__typename": "Issue",
+  "number": 5,
+  "title": "Crash on start",
+  "url": "https://github.com/o/a/issues/5",
+  "updatedAt": "2026-11-20T10:00:00Z",
+  "author": { "__typename": "Bot", "login": "dependabot" },
+  "repository": { "name": "a", "owner": { "login": "o" } },
+  "labels": { "nodes": [] },
+  "milestone": null,
+  "assignees": { "nodes": [] },
+  "comments": { "nodes": [
+    { "id": "IC_1", "author": { "login": "carol" }, "createdAt": "2026-11-20T09:00:00Z", "bodyText": "@me can you look" },
+    { "id": "IC_2", "author": { "login": "me" }, "createdAt": "2026-11-20T09:30:00Z", "bodyText": "on it" }
+  ] }
+}

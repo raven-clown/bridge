@@ -1,0 +1,26 @@
+{
+  "__typename": "PullRequest",
+  "number": 42,
+  "title": "Add the thing",
+  "url": "https://github.com/o/a/pull/42",
+  "updatedAt": "2026-11-21T08:00:00Z",
+  "author": { "__typename": "User", "login": "alice" },
+  "repository": { "name": "a", "owner": { "login": "o" } },
+  "labels": { "nodes": [ { "name": "enhancement", "color": "a2eeef" } ] },
+  "milestone": { "id": "MI_1", "number": 3, "title": "v0.1", "dueOn": "2026-12-01T00:00:00Z", "state": "OPEN" },
+  "assignees": { "nodes": [ { "login": "me" } ] },
+  "comments": { "nodes": [ { "id": "IC_9", "author": { "login": "bob" }, "createdAt": "2026-11-21T07:30:00Z", "bodyText": "looks good" } ] },
+  "headRefName": "feat/thing",
+  "isCrossRepository": false,
+  "reviewDecision": "APPROVED",
+  "mergeable": "MERGEABLE",
+  "mergeStateStatus": "CLEAN",
+  "commits": { "nodes": [ { "commit": {
+    "statusCheckRollup": { "state": "FAILURE", "contexts": { "nodes": [
+      { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "FAILURE" },
+      { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" },
+      { "__typename": "StatusContext", "state": "SUCCESS" }
+    ] } },
+    "checkSuites": { "nodes": [ { "status": "COMPLETED", "conclusion": "FAILURE" } ] }
+  } } ] }
+}
