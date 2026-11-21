@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -75,7 +76,7 @@ func Load(path string, env func(string) string) (Config, error) {
 	default:
 		dec := yaml.NewDecoder(bytes.NewReader(data))
 		dec.KnownFields(true)
-		if err := dec.Decode(&c); err != nil {
+		if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
 			return Config{}, fmt.Errorf("%s: %w", path, err)
 		}
 	}

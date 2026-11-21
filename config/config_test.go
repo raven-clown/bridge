@@ -69,6 +69,19 @@ func TestLoadMissingFileGivesDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadEmptyFileGivesDefaults(t *testing.T) {
+	for _, content := range []string{"", "\n", "# just a comment\n"} {
+		path := filepath.Join(t.TempDir(), "c.yaml")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load(path, noEnv)
+		if err != nil || c.Depth != 2 {
+			t.Fatalf("%q: depth %d err %v", content, c.Depth, err)
+		}
+	}
+}
+
 func TestLoadRejectsUnknownKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "c.yaml")
 	if err := os.WriteFile(path, []byte("depht: 3\n"), 0o600); err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,7 +11,9 @@ import (
 
 var version = "dev"
 
-func newRoot(out io.Writer) *cobra.Command {
+func newRoot(out io.Writer) *cobra.Command { return newRootWith(out, wireOptions{}) }
+
+func newRootWith(out io.Writer, opts wireOptions) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "bridge",
 		Short:         "A terminal control room for many repositories",
@@ -18,6 +21,9 @@ func newRoot(out io.Writer) *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.SetOut(out)
+	root.PersistentFlags().StringVar(&opts.configPath, "config", opts.configPath, "config file (default: the platform config directory)")
+	root.PersistentFlags().BoolVar(&opts.rescan, "rescan", false, "rescan the roots for repositories")
+
 	root.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print the version",
@@ -27,12 +33,29 @@ func newRoot(out io.Writer) *cobra.Command {
 			return err
 		},
 	})
+	root.AddCommand(
+		newInboxCmd(&opts),
+		newThreadCmd(&opts),
+		newTriageCmd(&opts),
+		newIssueCmd(&opts),
+		newAuthCmd(&opts),
+	)
 	return root
 }
 
 func main() {
-	if err := newRoot(os.Stdout).Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "bridge:", err)
-		os.Exit(1)
+	err := newRoot(os.Stdout).Execute()
+	if err == nil {
+		return
 	}
+	code := 1
+	var ee *exitError
+	if errors.As(err, &ee) {
+		code = ee.code
+		err = ee.err
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bridge:", err)
+	}
+	os.Exit(code)
 }
