@@ -1,0 +1,115 @@
+package tui
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/raven-clown/bridge/config"
+	"github.com/raven-clown/bridge/forge"
+	"github.com/raven-clown/bridge/forge/forgetest"
+	"github.com/raven-clown/bridge/inbox"
+	"github.com/raven-clown/bridge/internal/tui/msgs"
+	"github.com/raven-clown/bridge/internal/tui/tuitest"
+	"github.com/raven-clown/bridge/store"
+)
+
+func TestMain(m *testing.M) {
+	tuitest.NoColor()
+	os.Exit(m.Run())
+}
+
+var (
+	now   = time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	repoA = forge.RepoID{Host: "github.com", Owner: "o", Name: "a"}
+)
+
+func deps(t *testing.T) (Deps, *forgetest.Fake) {
+	t.Helper()
+	f := forgetest.New()
+	s, err := store.Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(filepath.Join(t.TempDir(), "none.yaml"), func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := func() time.Time { return now }
+	r := &inbox.Refresher{Forge: f, Store: s, Config: cfg, Me: "me", Extra: []forge.RepoID{repoA}, Now: clock}
+	return Deps{Refresher: r, Forge: f, Store: s, Config: cfg, Me: "me", Now: clock}, f
+}
+
+func sized(m Model) Model {
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	return next.(Model)
+}
+
+func TestAppStartsFromCache(t *testing.T) {
+	d, _ := deps(t)
+	res := inbox.Result{Items: []inbox.Item{{Kind: forge.IncomingIssue, Repo: repoA, ID: forge.ItemID{Repo: repoA, Number: 1}, Title: "From the cache"}}, At: now.Add(-5 * time.Minute)}
+	if err := d.Store.SaveCache("inbox", res, res.At); err != nil {
+		t.Fatal(err)
+	}
+	view := sized(newApp(context.Background(), d)).View()
+	if !strings.Contains(view, "From the cache") || !strings.Contains(view, "cached") {
+		t.Fatalf("view:\n%s", view)
+	}
+}
+
+func TestAppRefreshDoneShowsItems(t *testing.T) {
+	d, f := deps(t)
+	f.Incoming = []forge.Item{{ID: forge.ItemID{Repo: repoA, Number: 2}, Title: "Fresh one", UpdatedAt: now}}
+	m := sized(newApp(context.Background(), d))
+	next, _ := m.Update(refreshDoneMsg(d.Refresher.Refresh(context.Background())))
+	view := next.View()
+	if !strings.Contains(view, "Fresh one") || strings.Contains(view, "cached") || !strings.Contains(view, "refreshed 0m ago") {
+		t.Fatalf("view:\n%s", view)
+	}
+}
+
+func TestAppInitRefreshes(t *testing.T) {
+	d, f := deps(t)
+	f.Incoming = []forge.Item{{ID: forge.ItemID{Repo: repoA, Number: 3}, Title: "x"}}
+	m := newApp(context.Background(), d)
+	found := false
+	for _, msg := range tuitest.Run(m.refresh()) {
+		if _, ok := msg.(refreshDoneMsg); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("refresh did not produce a result")
+	}
+}
+
+func TestAppStatusBarShowsLogin(t *testing.T) {
+	d, _ := deps(t)
+	lines := strings.Split(sized(newApp(context.Background(), d)).View(), "\n")
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "me") {
+		t.Fatalf("status bar %q", last)
+	}
+}
+
+func TestAppQuit(t *testing.T) {
+	d, _ := deps(t)
+	m := sized(newApp(context.Background(), d))
+	_, cmd := m.Update(tuitest.Key("q"))
+	if out := tuitest.Run(cmd); len(out) != 1 || out[0] != (tea.QuitMsg{}) {
+		t.Fatalf("msgs = %+v", out)
+	}
+}
+
+func TestAppOpenURLShowsURL(t *testing.T) {
+	d, _ := deps(t)
+	m := sized(newApp(context.Background(), d))
+	next, _ := m.Update(msgs.OpenURL{URL: "https://github.com/o/a/issues/1"})
+	if !strings.Contains(next.View(), "https://github.com/o/a/issues/1") {
+		t.Fatalf("view:\n%s", next.View())
+	}
+}
