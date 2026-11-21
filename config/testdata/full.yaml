@@ -1,0 +1,45 @@
+roots: ["D:/workspace", "/home/me/src"]
+depth: 3
+refresh_seconds: 120
+
+auth:
+  source: env
+
+repos:
+  - owner/watched
+  - ghe.corp/team/tool
+
+policy:
+  default:
+    merge:
+      method: squash
+      title: "{title} (#{number})"
+      body: ""
+      delete_branch: true
+      require_green: true
+    release:
+      tag: "v{version}"
+      bump: prompt
+    sidebar:
+      labels: [triage]
+      milestone: current
+      assignee: me
+      project: Roadmap
+  "raven-clown/*":
+    merge:
+      method: rebase
+    sidebar:
+      labels: [needs-review]
+  "raven-clown/airlock":
+    merge:
+      method: merge
+      delete_branch: false
+
+mute:
+  repos: ["owner/archive-*"]
+  authors: ["dependabot[bot]"]
+  kinds: [pushed-branch]
+
+confirm:
+  comment: true
+  merge: false
