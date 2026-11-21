@@ -176,6 +176,27 @@ func TestThreadCommand(t *testing.T) {
 	}
 }
 
+func TestOutputEscapesControlCharacters(t *testing.T) {
+	h := newHarness(t, "repos: [o/a]\n")
+	evil := "\x1b]0;pwned\x07\x1b[2J"
+	h.fake.Threads[ref(5)] = forge.Thread{
+		Item:          forge.Item{ID: ref(5), Title: "t" + evil, Author: forge.User{Login: "x"}, Labels: []forge.Label{{Name: "l" + evil}}},
+		Body:          "b" + evil,
+		Comments:      []forge.Comment{{Author: forge.User{Login: "y" + evil}, Body: "c" + evil}},
+		ReviewThreads: []forge.ReviewThread{{Path: "p" + evil, Comments: []forge.Comment{{Body: "r" + evil}}}},
+	}
+	h.fake.Incoming = []forge.Item{{ID: ref(6), Title: "i" + evil, Author: forge.User{Login: "z" + evil}}}
+	for _, args := range [][]string{{"thread", "o/a#5"}, {"inbox"}} {
+		out, _, err := h.run(args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.ContainsAny(out, "\x1b\x07") {
+			t.Fatalf("%v printed a raw control character:\n%q", args, out)
+		}
+	}
+}
+
 func TestTriageMultipleRefs(t *testing.T) {
 	h := newHarness(t, "")
 	for _, n := range []int{1, 2} {

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/raven-clown/bridge/forge"
+	"github.com/raven-clown/bridge/internal/termsafe"
 	"github.com/raven-clown/bridge/thread"
 )
 
@@ -50,17 +51,18 @@ func names[T any](xs []T, name func(T) string) string {
 
 func printThread(w io.Writer, a *app, th forge.Thread) error {
 	it := th.Item
+	line := termsafe.Line
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s  %s\n", it.ID, it.Title)
-	meta := []string{"by " + it.Author.Login}
+	fmt.Fprintf(&b, "%s  %s\n", it.ID, line(it.Title))
+	meta := []string{"by " + line(it.Author.Login)}
 	if len(it.Labels) > 0 {
-		meta = append(meta, "labels: "+names(it.Labels, func(l forge.Label) string { return l.Name }))
+		meta = append(meta, "labels: "+line(names(it.Labels, func(l forge.Label) string { return l.Name })))
 	}
 	if it.Milestone != nil {
-		meta = append(meta, "milestone: "+it.Milestone.Title)
+		meta = append(meta, "milestone: "+line(it.Milestone.Title))
 	}
 	if len(it.Assignees) > 0 {
-		meta = append(meta, "assignees: "+names(it.Assignees, func(u forge.User) string { return u.Login }))
+		meta = append(meta, "assignees: "+line(names(it.Assignees, func(u forge.User) string { return u.Login })))
 	}
 	fmt.Fprintf(&b, "%s\n", strings.Join(meta, " · "))
 	if it.URL != "" {
@@ -70,18 +72,18 @@ func printThread(w io.Writer, a *app, th forge.Thread) error {
 		fmt.Fprintf(&b, "\n%s\n", body)
 	}
 	for _, c := range th.Comments {
-		fmt.Fprintf(&b, "\n--- %s, %s ago\n%s\n", c.Author.Login, age(a.now(), c.At), strings.TrimSpace(c.Body))
+		fmt.Fprintf(&b, "\n--- %s, %s ago\n%s\n", line(c.Author.Login), age(a.now(), c.At), strings.TrimSpace(c.Body))
 	}
 	for _, rt := range th.ReviewThreads {
 		state := ""
 		if rt.Resolved {
 			state = " (resolved)"
 		}
-		fmt.Fprintf(&b, "\n=== %s:%d%s\n", rt.Path, rt.Line, state)
+		fmt.Fprintf(&b, "\n=== %s:%d%s\n", line(rt.Path), rt.Line, state)
 		for _, c := range rt.Comments {
-			fmt.Fprintf(&b, "--- %s, %s ago\n%s\n", c.Author.Login, age(a.now(), c.At), strings.TrimSpace(c.Body))
+			fmt.Fprintf(&b, "--- %s, %s ago\n%s\n", line(c.Author.Login), age(a.now(), c.At), strings.TrimSpace(c.Body))
 		}
 	}
-	_, err := io.WriteString(w, b.String())
+	_, err := io.WriteString(w, termsafe.Text(b.String()))
 	return err
 }

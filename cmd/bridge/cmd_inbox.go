@@ -9,6 +9,7 @@ import (
 
 	"github.com/raven-clown/bridge/forge"
 	"github.com/raven-clown/bridge/inbox"
+	"github.com/raven-clown/bridge/internal/termsafe"
 )
 
 func newInboxCmd(opts *wireOptions) *cobra.Command {
@@ -83,7 +84,7 @@ func warn(cmd *cobra.Command, res inbox.Result) {
 		if p.RetryAt != nil {
 			line += fmt.Sprintf(" (retry after %s)", p.RetryAt.Local().Format("15:04"))
 		}
-		_, _ = fmt.Fprintln(w, line)
+		_, _ = fmt.Fprintln(w, termsafe.Line(line))
 	}
 	for _, t := range res.Truncated {
 		_, _ = fmt.Fprintf(w, "warning: %s has more than 1000 results; showing the first 1000\n", t)
@@ -99,8 +100,9 @@ func printInbox(cmd *cobra.Command, a *app, res inbox.Result) error {
 			reply = fmt.Sprintf("↩%d", it.Unanswered)
 		}
 		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			urgencyGlyph(it.Urgency), it.Repo, it.Kind, itemRef(it), truncate(it.Title, 50),
-			it.Author.Login, checksGlyph(it.Checks), reply, age(a.now(), it.UpdatedAt))
+			urgencyGlyph(it.Urgency), termsafe.Line(it.Repo.String()), it.Kind, termsafe.Line(itemRef(it)),
+			truncate(termsafe.Line(it.Title), 50), termsafe.Line(it.Author.Login),
+			checksGlyph(it.Checks), reply, age(a.now(), it.UpdatedAt))
 	}
 	return tw.Flush()
 }

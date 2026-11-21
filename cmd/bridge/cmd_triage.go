@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/raven-clown/bridge/forge"
+	"github.com/raven-clown/bridge/internal/termsafe"
 	"github.com/raven-clown/bridge/triage"
 )
 
@@ -66,7 +67,7 @@ func newTriageCmd(opts *wireOptions) *cobra.Command {
 			for _, r := range triage.Apply(cmd.Context(), a.forge, ids, ch) {
 				if r.Err != nil {
 					failed++
-					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "fail %s: %v\n", r.Item, r.Err)
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "fail %s: %s\n", r.Item, termsafe.Line(r.Err.Error()))
 					continue
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "ok %s\n", r.Item)
