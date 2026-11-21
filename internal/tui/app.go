@@ -17,6 +17,7 @@ import (
 	"github.com/raven-clown/bridge/internal/tui/inboxview"
 	"github.com/raven-clown/bridge/internal/tui/msgs"
 	"github.com/raven-clown/bridge/internal/tui/style"
+	"github.com/raven-clown/bridge/internal/tui/threadview"
 	"github.com/raven-clown/bridge/store"
 )
 
@@ -38,12 +39,21 @@ type rateLimiter interface {
 	RateLimit() (int, time.Time)
 }
 
+type view int
+
+const (
+	viewInbox view = iota
+	viewThread
+)
+
 type Model struct {
 	ctx  context.Context
 	deps Deps
 
 	width, height int
+	view          view
 	inbox         inboxview.Model
+	thread        threadview.Model
 
 	refreshing  bool
 	lastRefresh time.Time
@@ -84,6 +94,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.inbox = m.inbox.SetSize(m.width, m.height-1)
+		if m.view == viewThread {
+			m.thread = m.thread.SetSize(m.width, m.height-1)
+		}
+		return m, nil
+	case msgs.OpenThread:
+		m.view = viewThread
+		m.status = ""
+		m.thread = threadview.New(msg.ID, threadview.Deps{Forge: m.deps.Forge, Store: m.deps.Store, Now: m.deps.Now}, m.width, m.height-1)
+		return m, m.thread.Init()
+	case msgs.Back:
+		m.view = viewInbox
 		return m, nil
 	case refreshDoneMsg:
 		m.refreshing = false
@@ -110,12 +131,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = termsafe.Line(msg.URL)
 		return m, nil
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" || (msg.String() == "q" && !m.inbox.Filtering()) {
+		if msg.String() == "ctrl+c" || (m.view == viewInbox && msg.String() == "q" && !m.inbox.Filtering()) {
 			return m, tea.Quit
 		}
 	}
 	var cmd tea.Cmd
-	m.inbox, cmd = m.inbox.Update(msg)
+	switch m.view {
+	case viewThread:
+		m.thread, cmd = m.thread.Update(msg)
+	default:
+		m.inbox, cmd = m.inbox.Update(msg)
+	}
 	return m, cmd
 }
 
@@ -148,6 +174,9 @@ func ago(now, t time.Time) string {
 
 func (m Model) View() string {
 	body := m.inbox.View()
+	if m.view == viewThread {
+		body = m.thread.View()
+	}
 	lines := strings.Count(body, "\n") + 1
 	if pad := m.height - 1 - lines; pad > 0 {
 		body += strings.Repeat("\n", pad)

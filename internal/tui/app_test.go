@@ -105,6 +105,48 @@ func TestAppQuit(t *testing.T) {
 	}
 }
 
+// drive feeds msg to the app and keeps feeding whatever its commands return.
+func drive(m tea.Model, msg tea.Msg) tea.Model {
+	queue := []tea.Msg{msg}
+	for len(queue) > 0 && len(queue) < 50 {
+		next, cmd := m.Update(queue[0])
+		m, queue = next, queue[1:]
+		for _, out := range tuitest.Run(cmd) {
+			if _, tick := out.(tickMsg); !tick {
+				queue = append(queue, out)
+			}
+		}
+	}
+	return m
+}
+
+func TestAppOpensThreadAndBack(t *testing.T) {
+	d, f := deps(t)
+	id := forge.ItemID{Repo: repoA, Number: 7}
+	f.Threads[id] = forge.Thread{Item: forge.Item{ID: id, Title: "The thread"}, Body: "Body text"}
+	m := drive(sized(newApp(context.Background(), d)), msgs.OpenThread{ID: id})
+	if !strings.Contains(m.View(), "Body text") {
+		t.Fatalf("thread not shown:\n%s", m.View())
+	}
+	m = drive(m, tuitest.Key("q"))
+	if strings.Contains(m.View(), "Body text") {
+		t.Fatalf("still on the thread:\n%s", m.View())
+	}
+}
+
+func TestAppQInThreadDoesNotQuit(t *testing.T) {
+	d, f := deps(t)
+	id := forge.ItemID{Repo: repoA, Number: 7}
+	f.Threads[id] = forge.Thread{Item: forge.Item{ID: id}}
+	m := drive(sized(newApp(context.Background(), d)), msgs.OpenThread{ID: id})
+	_, cmd := m.Update(tuitest.Key("q"))
+	for _, out := range tuitest.Run(cmd) {
+		if out == (tea.QuitMsg{}) {
+			t.Fatal("q in the thread view quit the app")
+		}
+	}
+}
+
 func TestAppOpenURLShowsURL(t *testing.T) {
 	d, _ := deps(t)
 	m := sized(newApp(context.Background(), d))
