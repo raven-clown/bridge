@@ -17,7 +17,7 @@ Working name: `bridge`, as in a ship's bridge. The name is not final.
 - Windows is a first-class target, tested in CI alongside Linux and macOS.
 - GitHub first. Other forges come later behind the same interfaces.
 - Everything is free, Apache-2.0, no hosted service and no telemetry.
-- Rust.
+- Go. The program is many concurrent API calls feeding one screen, which goroutines and channels express directly, and the author already ships Go daily. Rust was considered for the same design and stays an option for a later, smaller tool.
 
 ## Scope
 
@@ -54,7 +54,7 @@ Working name: `bridge`, as in a ship's bridge. The name is not final.
 
 ## Approaches considered
 
-1. **One TUI with a headless core (chosen).** A library crate holds the domain and the GitHub client. A thin binary offers the TUI and the same operations as subcommands with JSON output. One program, one mental model, and the headless commands make the core testable and scriptable.
+1. **One TUI with a headless core (chosen).** Library packages hold the domain and the GitHub client. A thin command offers the TUI and the same operations as subcommands with JSON output. One program, one mental model, and the headless commands make the core testable and scriptable.
 2. **Several small CLIs piped together** (`inbox`, `triage`, `review`, `ship`). Faster to start, but the value is the single room where the list, the thread, the diff and the action live together. Composition would push state through files and lose that.
 3. **Contribute to gh-dash and tuicr.** The quickest path to a working loop, but it would be two programs with two configs, both depending on `gh`, neither with triage or projects, and neither owned by the author.
 
@@ -62,81 +62,84 @@ Working name: `bridge`, as in a ship's bridge. The name is not final.
 
 ```
 +----------------------------------------------------------------+
-| bridge (binary)                                                 |
-|   tui/     ratatui app: inbox, thread, review, ship, project    |
-|   cli/     subcommands: inbox, thread, triage, review, ship ... |
+| cmd/bridge                                                      |
+|   main.go       no args: TUI; subcommands: inbox, thread, ...   |
++----------------------------------------------------------------+
+| internal/tui    bubbletea app: inbox, thread, review, ship,     |
+|                 project views, triage panel                     |
 +----------------------------------------------------------------+
                                |
 +----------------------------------------------------------------+
-| bridge-core (library)                                           |
+| library packages (no terminal code)                             |
 |   discover/   roots -> local repos -> forge repos               |
-|   forge/      Forge trait; forge/github implements it          |
+|   forge/      Forge interface; forge/github implements it      |
 |   inbox/      items, ranking, refresh                          |
 |   thread/     conversation model, replies                      |
 |   triage/     labels, milestones, assignees, projects, state   |
 |   review/     diff model, comments, drafts, submit             |
 |   ship/       merge policy, post-merge, release notes          |
-|   config/     TOML config, env overrides, validation           |
+|   config/     YAML config, env overrides, validation           |
 |   store/      drafts, seen marks and cache on disk             |
 |   auth/       token sources: env, keyring, device flow         |
 +----------------------------------------------------------------+
             |                      |                     |
-         gix (git)        octocrab (GitHub API)      keyring
+      go-git (git)    go-github + githubv4 (API)     go-keyring
 ```
 
-**Crates**
-- `bridge-core`: everything that is not a screen. No terminal code, no `println!`. Every public operation takes a `Forge` and returns typed results, so tests run against a mock forge or recorded HTTP.
-- `bridge`: the binary. `bridge` with no arguments opens the TUI. Subcommands run one operation and print a table or `--json`: `bridge inbox`, `bridge thread <url>`, `bridge triage <url> --label x --milestone y --assign z --project p`, `bridge review <url>`, `bridge ship <url>`, `bridge release owner/name`, `bridge issue new owner/name`.
+**Packages**
+- Library packages at the module root (`discover`, `forge`, `inbox`, `thread`, `triage`, `review`, `ship`, `config`, `store`, `auth`): everything that is not a screen. No terminal code, no `fmt.Print`. Every public operation takes a `forge.Forge` and returns typed results, so tests run against a fake forge or recorded HTTP.
+- `internal/tui`: the bubbletea program, one model per view, shared styles with lipgloss.
+- `cmd/bridge`: the command. `bridge` with no arguments opens the TUI. Subcommands run one operation and print a table or `--json`: `bridge inbox`, `bridge thread <url>`, `bridge triage <url> --label x --milestone y --assign z --project p`, `bridge review <url>`, `bridge ship <url>`, `bridge release owner/name`, `bridge issue new owner/name`.
 
 **Key dependencies**
-- `ratatui` + `crossterm` for the terminal. crossterm has solid Windows support.
-- `octocrab` for GitHub REST and GraphQL. Device flow login is built in. Projects v2 is GraphQL only, so the GraphQL path is first class.
-- `gix` (gitoxide) for local repositories: remotes, HEAD, ahead/behind, worktrees, dirty state, fast-forward. Pure Rust, no `git` binary.
-- `keyring` for the OS credential store (Windows Credential Manager, macOS Keychain, Secret Service).
-- `tokio` for I/O; `serde` + `toml` for config; `insta` for snapshot tests; `wiremock` for recorded API tests.
+- `charmbracelet/bubbletea`, `bubbles` and `lipgloss` for the terminal. Windows Terminal and ConPTY are supported.
+- `google/go-github` for REST and `shurcooL/githubv4` for GraphQL, with typed query structs. Projects v2 is GraphQL only, so the GraphQL path is first class. Device flow login is a small package of our own over the two OAuth endpoints.
+- `go-git/go-git` for local repositories: remotes, HEAD, ahead/behind, worktrees, dirty state, fast-forward. Pure Go, no `git` binary. Status on a large repository is the slow path, so discovery caches it and the repos view refreshes it in the background.
+- `zalando/go-keyring` for the OS credential store (Windows Credential Manager, macOS Keychain, Secret Service).
+- `gopkg.in/yaml.v3` for config, `spf13/cobra` for subcommands, `charmbracelet/x/exp/teatest` for TUI tests, `net/http/httptest` with recorded fixtures for API tests.
 
 ### Forge interface
 
-```rust
-trait Forge {
-    async fn whoami(&self) -> Result<User>;
+```go
+type Forge interface {
+    WhoAmI(ctx context.Context) (User, error)
 
     // inbox
-    async fn list_my_prs(&self, since: Option<Timestamp>) -> Result<Vec<PullRequest>>;
-    async fn list_incoming(&self, repos: &[RepoId], since: Option<Timestamp>) -> Result<Vec<Item>>; // PRs and issues
-    async fn list_review_requests(&self) -> Result<Vec<PullRequest>>;
-    async fn list_mentions(&self, since: Option<Timestamp>) -> Result<Vec<CommentRef>>;
-    async fn list_branches(&self, repo: &RepoId) -> Result<Vec<Branch>>;
-    async fn pr_checks(&self, pr: &PrId) -> Result<Checks>;
+    ListMyPRs(ctx context.Context, since *time.Time) ([]PullRequest, error)
+    ListIncoming(ctx context.Context, repos []RepoID, since *time.Time) ([]Item, error) // PRs and issues
+    ListReviewRequests(ctx context.Context) ([]PullRequest, error)
+    ListMentions(ctx context.Context, since *time.Time) ([]CommentRef, error)
+    ListBranches(ctx context.Context, repo RepoID) ([]Branch, error)
+    PRChecks(ctx context.Context, pr PRID) (Checks, error)
 
     // thread
-    async fn thread(&self, item: &ItemId) -> Result<Thread>;
-    async fn comment(&self, item: &ItemId, body: &str, reply_to: Option<CommentId>) -> Result<CommentId>;
+    Thread(ctx context.Context, item ItemID) (Thread, error)
+    Comment(ctx context.Context, item ItemID, body string, replyTo *CommentID) (CommentID, error)
 
     // triage
-    async fn repo_meta(&self, repo: &RepoId) -> Result<RepoMeta>; // labels, milestones, collaborators, projects
-    async fn set_labels(&self, item: &ItemId, add: &[String], remove: &[String]) -> Result<()>;
-    async fn set_milestone(&self, item: &ItemId, milestone: Option<MilestoneId>) -> Result<()>;
-    async fn set_assignees(&self, item: &ItemId, add: &[String], remove: &[String]) -> Result<()>;
-    async fn set_state(&self, item: &ItemId, state: ItemState) -> Result<()>;
-    async fn create_issue(&self, repo: &RepoId, issue: &NewIssue) -> Result<ItemId>;
-    async fn list_projects(&self, owner: &str) -> Result<Vec<Project>>;
-    async fn project_items(&self, project: &ProjectId) -> Result<Vec<ProjectItem>>;
-    async fn add_to_project(&self, project: &ProjectId, item: &ItemId) -> Result<ProjectItemId>;
-    async fn set_project_field(&self, project: &ProjectId, item: &ProjectItemId, field: &FieldId, value: FieldValue) -> Result<()>;
+    RepoMeta(ctx context.Context, repo RepoID) (RepoMeta, error) // labels, milestones, collaborators, projects
+    SetLabels(ctx context.Context, item ItemID, add, remove []string) error
+    SetMilestone(ctx context.Context, item ItemID, milestone *MilestoneID) error
+    SetAssignees(ctx context.Context, item ItemID, add, remove []string) error
+    SetState(ctx context.Context, item ItemID, state ItemState) error
+    CreateIssue(ctx context.Context, repo RepoID, issue NewIssue) (ItemID, error)
+    ListProjects(ctx context.Context, owner string) ([]Project, error)
+    ProjectItems(ctx context.Context, project ProjectID) ([]ProjectItem, error)
+    AddToProject(ctx context.Context, project ProjectID, item ItemID) (ProjectItemID, error)
+    SetProjectField(ctx context.Context, project ProjectID, item ProjectItemID, field FieldID, value FieldValue) error
 
     // review
-    async fn pr_files(&self, pr: &PrId) -> Result<Vec<FilePatch>>;
-    async fn submit_review(&self, pr: &PrId, review: &Review) -> Result<()>;
+    PRFiles(ctx context.Context, pr PRID) ([]FilePatch, error)
+    SubmitReview(ctx context.Context, pr PRID, review Review) error
 
     // ship
-    async fn merge(&self, pr: &PrId, how: &MergeRequest) -> Result<MergeResult>;
-    async fn delete_branch(&self, repo: &RepoId, name: &str) -> Result<()>;
-    async fn approve_workflow_runs(&self, pr: &PrId) -> Result<u32>;
-    async fn rerun_failed(&self, pr: &PrId) -> Result<u32>;
-    async fn update_branch(&self, pr: &PrId) -> Result<()>;
-    async fn merged_prs_between(&self, repo: &RepoId, from: &Sha, to: &Sha) -> Result<Vec<PullRequest>>;
-    async fn create_release(&self, repo: &RepoId, release: &ReleaseRequest) -> Result<Url>;
+    Merge(ctx context.Context, pr PRID, how MergeRequest) (MergeResult, error)
+    DeleteBranch(ctx context.Context, repo RepoID, name string) error
+    ApproveWorkflowRuns(ctx context.Context, pr PRID) (int, error)
+    RerunFailed(ctx context.Context, pr PRID) (int, error)
+    UpdateBranch(ctx context.Context, pr PRID) error
+    MergedPRsBetween(ctx context.Context, repo RepoID, from, to SHA) ([]PullRequest, error)
+    CreateRelease(ctx context.Context, repo RepoID, release ReleaseRequest) (string, error)
 }
 ```
 
@@ -144,51 +147,50 @@ The GitHub implementation uses GraphQL for the list calls, the thread and everyt
 
 ## Data model
 
-```rust
-struct LocalRepo { path: PathBuf, remotes: Vec<Remote>, head: Head, dirty: bool, ahead: u32, behind: u32, worktrees: Vec<Worktree> }
+```go
+type LocalRepo struct { Path string; Remotes []Remote; Head Head; Dirty bool; Ahead, Behind int; Worktrees []Worktree }
 
-struct RepoId { host: String, owner: String, name: String }
+type RepoID struct { Host, Owner, Name string }
 
-enum InboxKind {
-    OwnPr,          // you opened it, anywhere
-    IncomingPr,     // someone opened it against a repo you watch
-    IncomingIssue,  // someone opened an issue against a repo you watch
-    ReviewRequest,  // your review was requested
-    Mention,        // a comment mentions you or replies to you, and you have not answered since
-    PushedBranch,   // a branch moved and has no pull request yet
+type InboxKind int // OwnPR, IncomingPR, IncomingIssue, ReviewRequest, Mention, PushedBranch
+// OwnPR          you opened it, anywhere
+// IncomingPR     someone opened it against a repo you watch
+// IncomingIssue  someone opened an issue against a repo you watch
+// ReviewRequest  your review was requested
+// Mention        a comment mentions you or replies to you, and you have not answered since
+// PushedBranch   a branch moved and has no pull request yet
+
+type InboxItem struct {
+    Kind       InboxKind
+    Repo       RepoID
+    ID         ItemID        // issue or PR number; branch name for PushedBranch
+    Title      string
+    Author     User
+    Labels     []Label
+    Milestone  *Milestone
+    Assignees  []User
+    Projects   []ProjectRef
+    Checks     *Checks       // PRs only: passing, failing, pending, awaiting_approval, none
+    Review     *ReviewState  // PRs only: none, commented, approved, changes_requested
+    Mergeable  *Mergeable    // PRs only: clean, conflicting, blocked, unknown
+    Unanswered int           // comments after your last comment
+    UpdatedAt  time.Time
+    SeenAt     *time.Time    // from the local store
+    Urgency    Urgency       // computed, see ranking
+    Local      string        // where it is checked out, if anywhere
 }
 
-struct InboxItem {
-    kind: InboxKind,
-    repo: RepoId,
-    id: ItemId,                     // issue or PR number; branch name for PushedBranch
-    title: String,
-    author: User,
-    labels: Vec<Label>,
-    milestone: Option<Milestone>,
-    assignees: Vec<User>,
-    projects: Vec<ProjectRef>,
-    checks: Option<Checks>,         // PRs only: passing, failing, pending, awaiting_approval, none
-    review: Option<ReviewState>,    // PRs only: none, commented, approved, changes_requested
-    mergeable: Option<Mergeable>,   // PRs only: clean, conflicting, blocked, unknown
-    unanswered: u32,                // comments after your last comment
-    updated_at: Timestamp,
-    seen_at: Option<Timestamp>,     // from the local store
-    urgency: Urgency,               // computed, see ranking
-    local: Option<PathBuf>,         // where it is checked out, if anywhere
-}
+type Thread struct { Item ItemID; Body string; Comments []Comment; ReviewThreads []ReviewThread; Events []Event }
 
-struct Thread { item: ItemId, body: Markdown, comments: Vec<Comment>, review_threads: Vec<ReviewThread>, events: Vec<Event> }
+type RepoMeta struct { Labels []Label; Milestones []Milestone; Assignable []User; Projects []Project }
 
-struct RepoMeta { labels: Vec<Label>, milestones: Vec<Milestone>, assignable: Vec<User>, projects: Vec<Project> }
+type Draft struct { PR PRID; HeadSHA SHA; Comments []DraftComment; Summary string; Viewed map[string]bool }
 
-struct Draft { pr: PrId, head_sha: Sha, comments: Vec<DraftComment>, summary: String, viewed: BTreeSet<PathBuf> }
+type SidebarDefaults struct { Labels []string; Milestone MilestoneRule; Assignee Assignee; Project string }
 
-struct SidebarDefaults { labels: Vec<String>, milestone: MilestoneRule, assignee: Assignee, project: Option<String> }
+type MergePolicy struct { Method MergeMethod; Title, Body Template; DeleteBranch, RequireGreen bool } // Squash, Merge, Rebase
 
-struct MergePolicy { method: Squash | Merge | Rebase, title: Template, body: Template, delete_branch: bool, require_green: bool }
-
-struct ReleasePolicy { tag: Template, sections: Vec<Section>, bump: Minor | Patch | Prompt }
+type ReleasePolicy struct { Tag Template; Sections []Section; Bump Bump } // Minor, Patch, Prompt
 ```
 
 Templates use `{title}`, `{number}`, `{author}`, `{branch}`, `{repo}`, `{version}`. The default merge title is `{title} (#{number})` and the default body is empty, which keeps a co-author trailer off a squash commit when the local git identity differs from the account.
@@ -214,7 +216,7 @@ Rules live in one file with a table-driven test per rule. The user can mute a re
 
 ## Data flow
 
-1. **Discover.** Walk each root to a configured depth, open every `.git` with gix, read remotes, map `github.com/owner/name` to a `RepoId`. Add the extra repositories from config. Cached on disk; a manual refresh rescans.
+1. **Discover.** Walk each root to a configured depth, open every `.git` with go-git, read remotes, map `github.com/owner/name` to a `RepoID`. Add the extra repositories from config. Cached on disk; a manual refresh rescans.
 2. **Refresh.** In parallel: `list_my_prs`, `list_incoming` for the watched repositories, `list_review_requests`, `list_mentions`, and `list_branches` for repositories that are local. Results merge into `InboxItem`s, ranking runs, the view updates. `repo_meta` is fetched lazily per repository and cached for the session. Refresh runs on start, on demand and on a timer (default 90 seconds). Conditional requests keep a quiet refresh inside the rate limit.
 3. **Thread.** Opening an item fetches `thread`. Replying calls `comment` and marks the item answered locally so it drops in the ranking at once, before the next refresh confirms it.
 4. **Triage.** The triage panel reads `repo_meta` for pickers. Each change is one call. With several items selected, the same change runs per item and the panel reports each result. Project moves go through `add_to_project` and `set_project_field`.
@@ -224,40 +226,45 @@ Rules live in one file with a table-driven test per rule. The user can mute a re
 
 ## Configuration
 
-Path: the platform config directory, `%APPDATA%\bridge\config.toml` on Windows, `~/.config/bridge/config.toml` elsewhere, or `--config`. Any key can be overridden by `BRIDGE_<KEY>` with `__` between nested keys.
+Path: the platform config directory, `%APPDATA%\bridge\config.yaml` on Windows, `~/.config/bridge/config.yaml` elsewhere, or `--config`. Any key can be overridden by `BRIDGE_<KEY>` with `__` between nested keys.
 
-```toml
-roots = ["D:/workspace"]
-depth = 2
-refresh_seconds = 90
+```yaml
+roots: ["D:/workspace"]
+depth: 2
+refresh_seconds: 90
 
-[auth]
-source = "keyring"          # keyring | env | device_flow
+auth:
+  source: keyring            # keyring | env | device_flow
 
-[[repos]]                   # repositories to watch that are not checked out
-name = "owner/name"
+repos:                       # repositories to watch that are not checked out
+  - owner/name
 
-[policy.default]
-merge.method = "squash"
-merge.title = "{title} (#{number})"
-merge.body = ""
-merge.delete_branch = true
-merge.require_green = true
-release.tag = "v{version}"
-release.bump = "prompt"
-sidebar.labels = []
-sidebar.milestone = "current"
-sidebar.assignee = "me"
-sidebar.project = ""
+policy:
+  default:
+    merge:
+      method: squash
+      title: "{title} (#{number})"
+      body: ""
+      delete_branch: true
+      require_green: true
+    release:
+      tag: "v{version}"
+      bump: prompt
+    sidebar:
+      labels: []
+      milestone: current
+      assignee: me
+      project: ""
+  "owner/*":                 # glob on owner/name, most specific wins
+    merge:
+      method: rebase
+    sidebar:
+      labels: [needs-review]
 
-[policy."owner/*"]          # glob on owner/name, most specific wins
-merge.method = "rebase"
-sidebar.labels = ["needs-review"]
-
-[mute]
-repos = ["owner/archive-*"]
-authors = ["dependabot[bot]"]
-kinds = []
+mute:
+  repos: ["owner/archive-*"]
+  authors: ["dependabot[bot]"]
+  kinds: []
 ```
 
 Token sources, in order: `BRIDGE_TOKEN` or `GITHUB_TOKEN` in the environment, then the OS keyring, then a device flow login that stores the token in the keyring. The token is never written to the config file or the log. Scopes needed: `repo`, `workflow`, `read:org`, `read:project` and `project` for board writes.
@@ -296,10 +303,10 @@ Every action that changes GitHub (comment, triage change, merge, delete branch, 
 
 ## Testing
 
-- `bridge-core` unit tests for discovery (fixture repositories built with gix in a temp dir), ranking (one table-driven test per rule), templates, sidebar defaults, release notes grouping, and config loading with env overrides.
-- Forge tests run against `wiremock` with recorded GitHub REST and GraphQL responses checked into `tests/fixtures/`. No network in the test suite.
-- TUI tests render into `ratatui::backend::TestBackend` and compare with `insta` snapshots for each view and for the key flows: open inbox, open thread, reply, triage two selected items, open review, add a comment, submit, confirm merge.
-- CI: build and test on `windows-latest`, `ubuntu-latest` and `macos-latest`, clippy with warnings denied, rustfmt check, `cargo-deny` for licenses and advisories. Release workflow builds binaries with checksums for Windows x64 and arm64, Linux x64 and arm64, macOS arm64, and publishes winget and Homebrew manifests.
+- Library unit tests for discovery (fixture repositories built with go-git in a temp dir), ranking (one table-driven test per rule), templates, sidebar defaults, release notes grouping, and config loading with env overrides.
+- Forge tests run against `httptest.Server` with recorded GitHub REST and GraphQL responses checked into `testdata/`. No network in the test suite. The TUI and the subcommands are tested against a fake `Forge` in `forge/forgetest`.
+- TUI tests use `teatest` and golden files for each view and for the key flows: open inbox, open thread, reply, triage two selected items, open review, add a comment, submit, confirm merge.
+- CI: build and test with `-race` on `windows-latest`, `ubuntu-latest` and `macos-latest`, `golangci-lint`, coverage of 80% or more, `govulncheck`. Release workflow uses goreleaser to build binaries with checksums for Windows x64 and arm64, Linux x64 and arm64, macOS arm64, and publishes winget and Homebrew manifests.
 
 ## Security
 
@@ -317,6 +324,6 @@ Every action that changes GitHub (comment, triage change, merge, delete branch, 
 
 ## Open questions
 
-- Name. `bridge` collides with common words and at least one crate. Candidates: `conn` (a ship's conning station), `quarterdeck`, `helm` and `tower` are taken by well-known projects.
+- Name. `bridge` collides with common words and several Go modules. Candidates: `conn` (a ship's conning station), `quarterdeck`, `helm` and `tower` are taken by well-known projects.
 - Whether v0.1 should include `PushedBranch` items, which need `list_branches` per repository and cost one request each. Default is on for local repositories only.
 - Whether `Mention` should also cover review comment replies on your own pull requests, which GitHub does not count as mentions. Default is yes, found by walking review threads on your open pull requests.
