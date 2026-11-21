@@ -1,0 +1,35 @@
+{
+  "__typename": "PullRequest",
+  "id": "PR_42",
+  "number": 42,
+  "title": "Add the thing",
+  "url": "https://github.com/o/a/pull/42",
+  "updatedAt": "2026-11-21T08:00:00Z",
+  "body": "This adds the thing.",
+  "author": { "__typename": "User", "login": "alice" },
+  "repository": { "name": "a", "owner": { "login": "o" } },
+  "labels": { "nodes": [ { "name": "enhancement", "color": "a2eeef" } ] },
+  "milestone": null,
+  "assignees": { "nodes": [] },
+  "comments": { "nodes": [ { "id": "IC_3", "author": { "login": "me" }, "createdAt": "2026-11-21T07:40:00Z", "bodyText": "will do" } ] },
+  "allComments": { "nodes": [
+    { "id": "IC_1", "author": { "login": "bob" }, "createdAt": "2026-11-21T07:00:00Z", "body": "Nice." },
+    { "id": "IC_2", "author": { "login": "carol" }, "createdAt": "2026-11-21T07:20:00Z", "body": "Can you add a test?" },
+    { "id": "IC_3", "author": { "login": "me" }, "createdAt": "2026-11-21T07:40:00Z", "body": "will do" }
+  ] },
+  "reviewThreads": { "nodes": [
+    { "id": "PRRT_1", "path": "main.go", "line": 12, "isResolved": false, "comments": { "nodes": [
+      { "id": "PRRC_1", "author": { "login": "carol" }, "createdAt": "2026-11-21T07:25:00Z", "body": "typo here" }
+    ] } }
+  ] },
+  "timelineItems": { "nodes": [
+    { "__typename": "LabeledEvent", "createdAt": "2026-11-21T06:00:00Z", "actor": { "login": "me" }, "label": { "name": "enhancement" } },
+    { "__typename": "ReviewRequestedEvent", "createdAt": "2026-11-21T06:10:00Z", "actor": { "login": "alice" }, "requestedReviewer": { "login": "me" } }
+  ] },
+  "headRefName": "feat/thing",
+  "isCrossRepository": false,
+  "reviewDecision": null,
+  "mergeable": "MERGEABLE",
+  "mergeStateStatus": "CLEAN",
+  "commits": { "nodes": [] }
+}

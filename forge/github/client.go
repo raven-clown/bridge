@@ -152,8 +152,29 @@ func (c *Client) statusError(resp *http.Response, data []byte) error {
 		return errors.Join(forge.ErrNotFound, err)
 	case http.StatusForbidden:
 		return errors.Join(forge.ErrForbidden, err)
+	case http.StatusUnprocessableEntity:
+		if strings.Contains(strings.ToLower(msg), "lock") {
+			return errors.Join(forge.ErrForbidden, err)
+		}
 	}
 	return err
+}
+
+func (c *Client) rest(ctx context.Context, method, path string, body, out any) error {
+	data, err := c.do(ctx, method, c.restBase+path, body)
+	if err != nil {
+		return err
+	}
+	if out == nil || len(data) == 0 {
+		return nil
+	}
+	return json.Unmarshal(data, out)
+}
+
+func repoPath(r forge.RepoID) string { return "/repos/" + r.Owner + "/" + r.Name }
+
+func issuePath(id forge.ItemID) string {
+	return fmt.Sprintf("%s/issues/%d", repoPath(id.Repo), id.Number)
 }
 
 type gqlError struct {
@@ -177,7 +198,7 @@ func (e GraphQLErrors) Is(target error) bool {
 	for _, g := range e {
 		switch {
 		case g.Type == "NOT_FOUND" && target == forge.ErrNotFound,
-			g.Type == "FORBIDDEN" && target == forge.ErrForbidden:
+			(g.Type == "FORBIDDEN" || g.Type == "INSUFFICIENT_SCOPES") && target == forge.ErrForbidden:
 			return true
 		}
 	}

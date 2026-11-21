@@ -226,7 +226,9 @@ type Comment struct {
 	ReplyTo CommentID `json:"reply_to,omitempty"`
 }
 
+// ReviewThread.ID is what Comment takes as replyTo to answer inside it.
 type ReviewThread struct {
+	ID       CommentID `json:"id"`
 	Path     string    `json:"path"`
 	Line     int       `json:"line"`
 	Resolved bool      `json:"resolved"`
