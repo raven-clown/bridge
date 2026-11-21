@@ -6,5 +6,14 @@ One static binary. Runs on Windows, macOS and Linux with no tmux, no `gh` and no
 
 Status: design done, building v0.1.
 
+## Build from source
+
+Needs Go 1.26 or newer.
+
+```shell
+go install github.com/raven-clown/bridge/cmd/bridge@latest
+bridge version
+```
+
 - Design: [docs/design.md](docs/design.md)
 - Current plan: [docs/plans/v0.1-inbox-thread-triage.md](docs/plans/v0.1-inbox-thread-triage.md)
