@@ -174,6 +174,9 @@ func emit(msg tea.Msg) tea.Cmd { return func() tea.Msg { return msg } }
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case metaMsg:
+		if !slices.Contains(m.repos(), msg.repo) {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.metaErr = fmt.Errorf("%s: %w", msg.repo, msg.err)
 			return m, nil
@@ -508,7 +511,14 @@ func (m Model) View() string {
 			if len(vis) == 0 {
 				lines = append(lines, style.Dim.Render("  nothing to pick"))
 			}
-			for i, o := range vis {
+			// Room left after the lines so far, the hint and the border.
+			start, end := 0, len(vis)
+			if room := m.height - len(lines) - 1 - 2; room > 0 && len(vis) > room {
+				start = max(0, min(p.cursor-room/2, len(vis)-room))
+				end = start + room
+			}
+			for i := start; i < end; i++ {
+				o := vis[i]
 				cur := "  "
 				if i == p.cursor {
 					cur = style.Selected.Render("> ")

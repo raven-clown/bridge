@@ -1,6 +1,7 @@
 package triageview
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -219,6 +220,41 @@ func TestTriageCloseAsksConfirm(t *testing.T) {
 	_, _ = press(m, "a", "y")
 	if f.States[id(repoA, 1)] != forge.StateClosed {
 		t.Fatal("not closed after y")
+	}
+}
+
+func TestMetaForAnotherRepoIsIgnored(t *testing.T) {
+	f := fake()
+	s, _ := store.Open(filepath.Join(t.TempDir(), "state"))
+	m := New([]forge.ItemID{id(repoA, 1)}, Deps{Forge: f, Store: s}, 40, 24)
+	m, _ = m.Update(metaMsg{repo: repoB, meta: f.Meta[repoB]})
+	m = settle(m, m.Init())
+	if !strings.Contains(m.View(), "Labels") {
+		t.Fatalf("stuck loading:\n%s", m.View())
+	}
+}
+
+func TestPickerScrollsWithinHeight(t *testing.T) {
+	f := fake()
+	meta := f.Meta[repoA]
+	meta.Labels = nil
+	for i := range 50 {
+		meta.Labels = append(meta.Labels, forge.Label{Name: fmt.Sprintf("label-%02d", i)})
+	}
+	f.Meta[repoA] = meta
+	s, _ := store.Open(filepath.Join(t.TempDir(), "state"))
+	m := New([]forge.ItemID{id(repoA, 1)}, Deps{Forge: f, Store: s}, 40, 20)
+	m = settle(m, m.Init())
+	m, _ = press(m, "enter")
+	for range 40 {
+		m, _ = press(m, "down")
+	}
+	view := m.View()
+	if n := len(strings.Split(view, "\n")); n > 20 {
+		t.Fatalf("panel is %d lines tall:\n%s", n, view)
+	}
+	if !strings.Contains(view, "> [ ] label-40") || !strings.Contains(view, "Triage 1 item") {
+		t.Fatalf("cursor or header not visible:\n%s", view)
 	}
 }
 

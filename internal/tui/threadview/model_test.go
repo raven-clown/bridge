@@ -151,6 +151,15 @@ func TestReplyErrorKeepsText(t *testing.T) {
 	}
 }
 
+func TestTypingSavesDraft(t *testing.T) {
+	m, _, s := setup(t)
+	m, _ = press(m, "j", "r")
+	_ = typeText(m, "typed only")
+	if _, body, ok, _ := s.LoadReplyDraft(id); !ok || body != "typed only" {
+		t.Fatalf("draft %q ok %v", body, ok)
+	}
+}
+
 func TestEscKeepsDraft(t *testing.T) {
 	m, _, s := setup(t)
 	m, _ = press(m, "j", "r")
@@ -165,6 +174,21 @@ func TestEscKeepsDraft(t *testing.T) {
 	m, _ = press(m, "r")
 	if !strings.Contains(m.View(), "half done") {
 		t.Fatalf("draft not loaded:\n%s", m.View())
+	}
+}
+
+func TestLateLoadForAnotherItemIsIgnored(t *testing.T) {
+	f := forgetest.New()
+	s, _ := store.Open(filepath.Join(t.TempDir(), "state"))
+	other := forge.ItemID{Repo: repo, Number: 7}
+	m := New(id, Deps{Forge: f, Store: s, Now: func() time.Time { return now }}, 80, 40)
+	m, _ = m.Update(loadedMsg{id: other, th: forge.Thread{Item: forge.Item{ID: other, Title: "Wrong thread"}}})
+	if strings.Contains(m.View(), "Wrong thread") {
+		t.Fatalf("another item's thread was shown:\n%s", m.View())
+	}
+	m, _ = m.Update(sentMsg{id: other})
+	if m.Composing() {
+		t.Fatal("unexpected compose state")
 	}
 }
 

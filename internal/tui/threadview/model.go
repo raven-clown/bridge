@@ -32,12 +32,18 @@ type Deps struct {
 	Now   func() time.Time
 }
 
+// Both carry the item id: an answer for a thread the user already left must
+// not land in the one now open.
 type (
 	loadedMsg struct {
+		id  forge.ItemID
 		th  forge.Thread
 		err error
 	}
-	sentMsg struct{ err error }
+	sentMsg struct {
+		id  forge.ItemID
+		err error
+	}
 )
 
 // block is one selectable part of the thread. replyTo is what a reply to
@@ -118,7 +124,7 @@ func (m Model) Init() tea.Cmd {
 	d, id := m.deps, m.id
 	return func() tea.Msg {
 		th, err := thread.Load(context.Background(), d.Forge, d.Store, id)
-		return loadedMsg{th: th, err: err}
+		return loadedMsg{id: id, th: th, err: err}
 	}
 }
 
@@ -127,6 +133,9 @@ func emit(msg tea.Msg) tea.Cmd { return func() tea.Msg { return msg } }
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case loadedMsg:
+		if msg.id != m.id {
+			return m, nil
+		}
 		m.loaded, m.err, m.th = true, msg.err, msg.th
 		if msg.err == nil {
 			m.blocks = m.build()
@@ -134,6 +143,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	case sentMsg:
+		if msg.id != m.id {
+			return m, nil
+		}
 		m.sending = false
 		if msg.err != nil {
 			m.sendErr = msg.err
@@ -161,7 +173,7 @@ func (m Model) updateCompose(k tea.KeyMsg) (Model, tea.Cmd) {
 		d, id, to, body := m.deps, m.id, m.replyTo, m.editor.Value()
 		return m, func() tea.Msg {
 			_, err := thread.Reply(context.Background(), d.Forge, d.Store, id, to, body)
-			return sentMsg{err: err}
+			return sentMsg{id: id, err: err}
 		}
 	case "esc":
 		m.composing, m.sendErr = false, nil
@@ -174,8 +186,15 @@ func (m Model) updateCompose(k tea.KeyMsg) (Model, tea.Cmd) {
 		_ = m.deps.Store.DeleteReplyDraft(m.id)
 		return m, nil
 	}
+	before := m.editor.Value()
 	var cmd tea.Cmd
 	m.editor, cmd = m.editor.Update(k)
+	// Write on every change so ctrl+c or a crash never loses typed text.
+	if body := m.editor.Value(); body != before {
+		if err := m.deps.Store.SaveReplyDraft(m.id, m.replyTo, body); err != nil {
+			m.sendErr = fmt.Errorf("could not save the draft: %w", err)
+		}
+	}
 	return m, cmd
 }
 
