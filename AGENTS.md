@@ -4,7 +4,7 @@ Instructions for coding agents working in this repository. Keep this file curren
 
 ## Project
 
-bridge is a terminal control room for people who maintain many repositories. It builds one ranked inbox of pull requests, issues, review requests, mentions and pushed branches across every repository, and lets you read threads, reply and triage from the terminal. Review, merge and release come next. The design is in `docs/design.md`; plans are in `docs/plans/`; every config key is in `docs/config.md`.
+bridge is a terminal control room for people who maintain many repositories. It builds one ranked inbox of pull requests, issues, review requests, mentions and pushed branches across every repository, and lets you read threads, reply, triage and review pull requests from the terminal. Merge and release come next. The design is in `docs/design.md`; plans are in `docs/plans/`; every config key is in `docs/config.md`.
 
 ## Commands
 
@@ -31,7 +31,9 @@ TUI golden files live in each view's `testdata/`. After a deliberate layout chan
 - `inbox`: builds and ranks items (`Build`, `Rank`) and refreshes every source concurrently (`Refresher`).
 - `thread`, `triage`: loading threads, replies with drafts, triage changes, issue creation with policy defaults.
 - `internal/termsafe`: escapes control characters in forge text. Everything printed or rendered from the forge goes through it.
-- `internal/tui`: the bubbletea app. Views are `inboxview`, `threadview`, `triageview` and `issueview`; `msgs` holds the messages between them; `style` holds colors; `tuitest` holds key and golden helpers.
+- `review`: patch parsing, folding rules, review drafts and submission.
+- `.github`: CI and release workflows, issue and pull request templates, CODEOWNERS and Dependabot. Contributor rules live in `CONTRIBUTING.md`; keep it in step with this file.
+- `internal/tui`: the bubbletea app. Views are `inboxview`, `threadview`, `triageview`, `issueview` and `reviewview`; `msgs` holds the messages between them; `style` holds colors; `tuitest` holds key and golden helpers.
 
 ## Rules
 
@@ -41,6 +43,7 @@ TUI golden files live in each view's `testdata/`. After a deliberate layout chan
 - The token never appears in config files, logs, errors or fixtures.
 - Text from the forge reaches the terminal only through `internal/termsafe`.
 - Paths go through `filepath`, and every test passes on Windows.
+- main is protected: every change lands through a pull request with green CI.
 - Work on a branch named `feat/<topic>`, `fix/<topic>`, `ci/<topic>`, `docs/<topic>` or `chore/<topic>`. Commit with Conventional Commits messages.
 - Merge a squash with `--subject "<pr title> (#<n>)" --body ""` so no co-author trailer lands on main.
 - Release with a tag `vX.Y.Z` on main; the release workflow builds archives and takes the notes from that version's CHANGELOG section.

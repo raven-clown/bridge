@@ -4,7 +4,7 @@ A terminal control room for people who maintain many repositories. One screen sh
 
 One static binary. Runs on Windows, macOS and Linux with no tmux, no `gh` and no shell plugins. Free and open source under Apache-2.0, with no telemetry.
 
-Status: v0.1 in progress. Merge and release from the terminal come next. See [docs/design.md](docs/design.md).
+Status: v0.1 in progress. Inbox, threads, triage and review work today; merge and release from the terminal come next. See [docs/design.md](docs/design.md).
 
 ## Install
 
@@ -69,6 +69,7 @@ Press `d` on a pull request in the inbox or in its thread to open its diff: a fi
 | `S` | submit: comment, approve or request changes |
 | `z` | fold or unfold the file |
 | `x` | mark the file viewed |
+| `h` / `l`, `0` | scroll long lines sideways, back to the start |
 | `f` | show or hide the file list |
 
 Comments are kept as a local draft until you submit, together with the commit you reviewed. If someone pushes while you review, bridge says so before submitting, since your comments may point at lines that moved.
@@ -97,6 +98,10 @@ go build ./...
 go test ./...
 make check
 ```
+
+## Contributing
+
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), pick an issue labelled `good first issue` or `help wanted`, and ask questions in [Discussions](https://github.com/raven-clown/bridge/discussions). Report security problems privately as described in [SECURITY.md](SECURITY.md). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
