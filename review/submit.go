@@ -25,19 +25,25 @@ func Submit(ctx context.Context, f forge.Forge, s *store.Store, d Draft, event f
 	if err != nil {
 		return err
 	}
-	// Only comments can point at moved lines; an approval of the new head
-	// with none needs no second confirmation.
-	if d.Stale(diff.HeadSHA) && !force && len(d.Comments) > 0 {
+	// Any review of a moved head asks first, an approval most of all: it
+	// would approve commits the reviewer never saw.
+	if d.Stale(diff.HeadSHA) && !force {
 		return forge.ErrStaleHead
 	}
-	rv := forge.Review{CommitSHA: diff.HeadSHA, Event: event, Body: d.Summary}
+	// The review is tied to the commit that was looked at; only a forced
+	// submit takes the new head.
+	commit := d.HeadSHA
+	if force || commit == "" {
+		commit = diff.HeadSHA
+	}
+	rv := forge.Review{CommitSHA: commit, Event: event, Body: d.Summary}
 	for _, c := range d.Comments {
 		rv.Comments = append(rv.Comments, forge.ReviewComment{
 			Path: c.Path, Line: c.Line, Side: c.Side, StartLine: c.StartLine, StartSide: c.StartSide, Body: c.Body,
 		})
 	}
 	if err := f.SubmitReview(ctx, d.PR, rv); err != nil {
-		return staleOr(ctx, f, d.PR, diff.HeadSHA, force, err)
+		return staleOr(ctx, f, d.PR, commit, force, err)
 	}
 	return s.DeleteReviewDraft(d.PR)
 }

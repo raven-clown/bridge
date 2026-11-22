@@ -130,11 +130,25 @@ func TestSubmit422WithSameHeadShowsGitHubMessage(t *testing.T) {
 	}
 }
 
-func TestSubmitWithoutCommentsIgnoresMovedHead(t *testing.T) {
+func TestApprovingAMovedHeadNeedsForce(t *testing.T) {
 	f, s := submitSetup(t, "new")
 	d := Draft{PR: pr, HeadSHA: "old", Viewed: []string{"a.go"}}
+	if err := Submit(context.Background(), f, s, d, forge.EventApprove, false); !errors.Is(err, forge.ErrStaleHead) {
+		t.Fatalf("approving a head the reviewer never saw must ask first: %v", err)
+	}
+	if len(f.Reviews[pr]) != 0 {
+		t.Fatal("approved unseen code")
+	}
+}
+
+func TestSubmitSendsTheReviewedCommit(t *testing.T) {
+	f, s := submitSetup(t, "h")
+	d := withComment(Draft{PR: pr, HeadSHA: "h", Summary: "s"})
 	if err := Submit(context.Background(), f, s, d, forge.EventApprove, false); err != nil {
-		t.Fatalf("an approval with no comments should not need force: %v", err)
+		t.Fatal(err)
+	}
+	if got := f.Reviews[pr][0].CommitSHA; got != "h" {
+		t.Fatalf("commit = %q", got)
 	}
 }
 
