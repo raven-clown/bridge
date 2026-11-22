@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -151,11 +150,10 @@ type reposCache struct {
 }
 
 func (a *app) loadRepos(ctx context.Context, rescan bool) ([]discover.LocalRepo, error) {
+	// A cache that cannot be read, such as one an older version wrote, is
+	// only a reason to scan again.
 	var c reposCache
 	at, err := a.store.LoadCache("repos", &c)
-	if err != nil && !errors.Is(err, store.ErrNoCache) {
-		return nil, err
-	}
 	fresh := err == nil && a.now().Sub(at) < reposCacheTTL && slices.Equal(c.Roots, a.cfg.Roots) && c.Depth == a.cfg.Depth
 	if fresh && !rescan {
 		return c.Repos, nil

@@ -16,6 +16,7 @@ import (
 	"github.com/raven-clown/bridge/forge"
 	"github.com/raven-clown/bridge/forge/forgetest"
 	"github.com/raven-clown/bridge/inbox"
+	"github.com/raven-clown/bridge/store"
 )
 
 var (
@@ -220,6 +221,26 @@ func TestRepoCacheRescansWhenRootsChange(t *testing.T) {
 	write(second)
 	if got := names(); len(got) != 1 || got[0] != "b" {
 		t.Fatalf("after changing roots: %v", got)
+	}
+}
+
+func TestUnreadableRepoCacheRescans(t *testing.T) {
+	h := newHarness(t, "")
+	root := t.TempDir()
+	gitRepo(t, filepath.Join(root, "a"), "https://github.com/o/a.git")
+	if err := os.WriteFile(h.opts.configPath, []byte("roots: [\""+filepath.ToSlash(root)+"\"]\ndepth: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(h.opts.stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveCache("repos", []string{"an old format"}, now); err != nil {
+		t.Fatal(err)
+	}
+	a, err := wire(t.Context(), h.opts)
+	if err != nil || len(a.repos) != 1 {
+		t.Fatalf("repos %v err %v", a, err)
 	}
 }
 
