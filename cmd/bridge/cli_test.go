@@ -153,6 +153,29 @@ func TestInboxExitCodeAllFailed(t *testing.T) {
 	}
 }
 
+func TestInboxOfflineUsesCachedLoginAndItems(t *testing.T) {
+	h := newHarness(t, "repos: [o/a]\n")
+	h.fake.Incoming = []forge.Item{{ID: ref(1), Title: "Seen before", UpdatedAt: now}}
+	if _, _, err := h.run("inbox"); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{"WhoAmI", "Writable", "ListMyPRs", "ListIncoming", "ListReviewRequests", "ListMentions"} {
+		h.fake.Err[m] = errors.New("offline")
+	}
+	out, errOut, err := h.run("inbox")
+	if err != nil || !strings.Contains(out, "Seen before") || !strings.Contains(errOut, "offline") {
+		t.Fatalf("err %v\nout:\n%s\nstderr:\n%s", err, out, errOut)
+	}
+}
+
+func TestOfflineWithoutCachedLoginFails(t *testing.T) {
+	h := newHarness(t, "")
+	h.fake.Err["WhoAmI"] = errors.New("offline")
+	if _, _, err := h.run("inbox"); err == nil || !strings.Contains(err.Error(), "offline") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestThreadCommand(t *testing.T) {
 	h := newHarness(t, "")
 	h.fake.Threads[ref(5)] = forge.Thread{

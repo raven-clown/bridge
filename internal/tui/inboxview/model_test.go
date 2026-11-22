@@ -2,6 +2,7 @@ package inboxview
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -84,6 +85,18 @@ func TestInboxProblemRowAndBanners(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "incoming has more than 1000 results") || !strings.Contains(view, "cached") {
 		t.Fatalf("banners missing:\n%s", view)
+	}
+}
+
+func TestInboxManyProblemsStayInFrame(t *testing.T) {
+	res := sample()
+	for i := range 40 {
+		res.Problems = append(res.Problems, inbox.Problem{Source: fmt.Sprintf("s%d", i), Err: errors.New("down")})
+	}
+	m := New(100, 30, func() time.Time { return now }).SetResult(res, false)
+	lines := strings.Split(m.View(), "\n")
+	if len(lines) > 30 || !strings.Contains(m.View(), "Fix the router") || !strings.Contains(m.View(), "and 37 more problems") {
+		t.Fatalf("%d lines:\n%s", len(lines), m.View())
 	}
 }
 

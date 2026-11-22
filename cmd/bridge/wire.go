@@ -111,11 +111,11 @@ func wire(ctx context.Context, o wireOptions) (*app, error) {
 			return nil, err
 		}
 	}
-	me, err := f.WhoAmI(ctx)
+	me, err := whoAmI(ctx, f, s, o.now())
 	if err != nil {
-		return nil, fmt.Errorf("who am I: %w", err)
+		return nil, err
 	}
-	a := &app{cfg: cfg, forge: f, store: s, me: me.Login, env: o.env, now: o.now}
+	a := &app{cfg: cfg, forge: f, store: s, me: me, env: o.env, now: o.now}
 	for _, r := range cfg.Repos {
 		id, err := forge.ParseRepoID(r)
 		if err != nil {
@@ -125,6 +125,20 @@ func wire(ctx context.Context, o wireOptions) (*app, error) {
 	}
 	a.repos, err = a.loadRepos(ctx, o.rescan)
 	return a, err
+}
+
+// whoAmI falls back to the login cached by an earlier run, so bridge still
+// starts from its cache when GitHub cannot be reached.
+func whoAmI(ctx context.Context, f forge.Forge, s *store.Store, now time.Time) (string, error) {
+	me, err := f.WhoAmI(ctx)
+	if err == nil {
+		return me.Login, s.SaveCache("me", me.Login, now)
+	}
+	var cached string
+	if _, cerr := s.LoadCache("me", &cached); cerr == nil && cached != "" {
+		return cached, nil
+	}
+	return "", fmt.Errorf("who am I: %w", err)
 }
 
 func (a *app) loadRepos(ctx context.Context, rescan bool) ([]discover.LocalRepo, error) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,6 +164,70 @@ func TestRefreshWritableFailureIsProblem(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("problems = %+v", res.Problems)
+	}
+}
+
+var listSources = []string{"ListMyPRs", "ListIncoming", "ListReviewRequests", "ListMentions", "ListBranches"}
+
+func TestRefreshKeepsItemsFromFailedSources(t *testing.T) {
+	f := fakeWithAll()
+	r := refresher(t, f)
+	first := r.Refresh(context.Background())
+	for _, m := range listSources {
+		f.Err[m] = &forge.RateLimitedError{RetryAt: t0.Add(time.Minute)}
+	}
+	second := r.Refresh(context.Background())
+	if len(second.Items) != len(first.Items) {
+		t.Fatalf("items %d, want %d kept from the last refresh", len(second.Items), len(first.Items))
+	}
+	if len(second.Problems) != 5 {
+		t.Fatalf("problems = %+v", second.Problems)
+	}
+	cached, _ := r.Cached()
+	if len(cached.Items) != len(first.Items) {
+		t.Fatalf("cache lost items: %d", len(cached.Items))
+	}
+}
+
+func TestRefreshCarriesCacheOnFirstFailure(t *testing.T) {
+	f := fakeWithAll()
+	r := refresher(t, f)
+	first := r.Refresh(context.Background())
+
+	f.Err["ListMyPRs"] = errors.New("offline")
+	f.MyPRs = nil
+	fresh := &Refresher{Forge: f, Store: r.Store, Config: r.Config, Me: r.Me, Repos: r.Repos, Extra: r.Extra, Now: r.Now}
+	got := fresh.Refresh(context.Background())
+	own := 0
+	for _, it := range got.Items {
+		if it.Kind == forge.OwnPR {
+			own++
+		}
+	}
+	if own != 1 || len(got.Items) != len(first.Items) {
+		t.Fatalf("own PRs %d, items %d want %d", own, len(got.Items), len(first.Items))
+	}
+}
+
+func TestRefreshCollapsesBranchProblems(t *testing.T) {
+	f := fakeWithAll()
+	f.Err["ListBranches"] = errors.New("nope")
+	r := refresher(t, f)
+	b, c := repoB, forge.RepoID{Host: "github.com", Owner: "o", Name: "c"}
+	a := repoA
+	r.Repos = []discover.LocalRepo{{Path: "/a", Repo: &a}, {Path: "/b", Repo: &b}, {Path: "/c", Repo: &c}}
+	res := r.Refresh(context.Background())
+	n := 0
+	for _, p := range res.Problems {
+		if p.Source == "branches" {
+			n++
+			if !strings.Contains(p.Err.Error(), "3 repositories") {
+				t.Errorf("err = %v", p.Err)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("branch problems = %d: %+v", n, res.Problems)
 	}
 }
 

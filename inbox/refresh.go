@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -66,6 +68,8 @@ type Refresher struct {
 	Repos  []discover.LocalRepo
 	Extra  []forge.RepoID
 	Now    func() time.Time
+
+	last *Result
 }
 
 const cacheName = "inbox"
@@ -207,7 +211,10 @@ func (r *Refresher) Refresh(ctx context.Context) Result {
 	in.Muted = r.Config.Muted
 	res.Items = Build(in)
 	res.At = now()
+	res.Problems = collapseBranches(res.Problems)
 	slices.SortStableFunc(res.Problems, func(a, b Problem) int { return strings.Compare(a.Source, b.Source) })
+	res.Items = r.carry(res.Items, res.Problems)
+	r.last = &res
 
 	if r.Store != nil {
 		if err := r.Store.SaveCache(cacheName, res, res.At); err != nil {
@@ -215,6 +222,86 @@ func (r *Refresher) Refresh(ctx context.Context) Result {
 		}
 	}
 	return res
+}
+
+var sourceKinds = map[string][]forge.InboxKind{
+	"my-prs":          {forge.OwnPR},
+	"incoming":        {forge.IncomingPR, forge.IncomingIssue},
+	"review-requests": {forge.ReviewRequest},
+	"mentions":        {forge.Mention},
+}
+
+// carry keeps the previous result's items for every source that failed this
+// time, so a rate limit or an outage never empties the inbox. The previous
+// result is the last refresh, or the cache on the first one.
+func (r *Refresher) carry(items []Item, problems []Problem) []Item {
+	if len(problems) == 0 {
+		return items
+	}
+	prev := r.last
+	if prev == nil {
+		if cached, ok := r.Cached(); ok {
+			prev = &cached
+		}
+	}
+	if prev == nil {
+		return items
+	}
+	have := map[string]bool{}
+	for _, it := range items {
+		have[itemKey(it)] = true
+	}
+	failed := func(it Item) bool {
+		for _, p := range problems {
+			if slices.Contains(sourceKinds[p.Source], it.Kind) {
+				return true
+			}
+			if p.Source == "branches" && it.Kind == forge.PushedBranch && (p.Repo == nil || *p.Repo == it.Repo) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, it := range prev.Items {
+		if failed(it) && !have[itemKey(it)] {
+			items = append(items, it)
+			have[itemKey(it)] = true
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Urgency != items[j].Urgency {
+			return items[i].Urgency > items[j].Urgency
+		}
+		return items[i].UpdatedAt.Before(items[j].UpdatedAt)
+	})
+	return items
+}
+
+func itemKey(it Item) string { return it.Kind.String() + " " + it.ID.String() + " " + it.Branch }
+
+// collapseBranches folds one problem row per repository into one row.
+func collapseBranches(ps []Problem) []Problem {
+	var out []Problem
+	var branch []Problem
+	for _, p := range ps {
+		if p.Source == "branches" {
+			branch = append(branch, p)
+			continue
+		}
+		out = append(out, p)
+	}
+	switch len(branch) {
+	case 0:
+	case 1:
+		out = append(out, branch[0])
+	default:
+		out = append(out, Problem{
+			Source:  "branches",
+			Err:     fmt.Errorf("%d repositories failed, first: %w", len(branch), branch[0].Err),
+			RetryAt: branch[0].RetryAt,
+		})
+	}
+	return out
 }
 
 func (r *Refresher) Cached() (Result, bool) {

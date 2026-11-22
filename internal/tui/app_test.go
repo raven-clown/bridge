@@ -62,6 +62,23 @@ func TestAppStartsFromCache(t *testing.T) {
 	}
 }
 
+func TestAppRateLimitedRefreshKeepsCachedItems(t *testing.T) {
+	d, f := deps(t)
+	res := inbox.Result{Items: []inbox.Item{{Kind: forge.IncomingIssue, Repo: repoA, ID: forge.ItemID{Repo: repoA, Number: 1}, Title: "Still here"}}, At: now}
+	if err := d.Store.SaveCache("inbox", res, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{"ListMyPRs", "ListIncoming", "ListReviewRequests", "ListMentions"} {
+		f.Err[m] = &forge.RateLimitedError{RetryAt: now.Add(10 * time.Minute)}
+	}
+	m := sized(newApp(context.Background(), d))
+	next, _ := m.Update(refreshDoneMsg(d.Refresher.Refresh(context.Background())))
+	view := next.View()
+	if !strings.Contains(view, "Still here") || !strings.Contains(view, "retry after") {
+		t.Fatalf("view:\n%s", view)
+	}
+}
+
 func TestAppRefreshDoneShowsItems(t *testing.T) {
 	d, f := deps(t)
 	f.Incoming = []forge.Item{{ID: forge.ItemID{Repo: repoA, Number: 2}, Title: "Fresh one", UpdatedAt: now}}

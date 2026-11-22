@@ -335,7 +335,12 @@ func (m Model) row(it inbox.Item, cursor bool) string {
 
 func (m Model) View() string {
 	var top []string
-	for _, p := range m.res.Problems {
+	const maxProblems = 3
+	problems := m.res.Problems
+	if len(problems) > maxProblems {
+		problems = problems[:maxProblems]
+	}
+	for _, p := range problems {
 		where := p.Source
 		if p.Repo != nil {
 			where += " " + p.Repo.String()
@@ -345,6 +350,9 @@ func (m Model) View() string {
 			line += " (retry after " + p.RetryAt.Local().Format("15:04") + ")"
 		}
 		top = append(top, style.Error.Render(termsafe.Line(line)))
+	}
+	if extra := len(m.res.Problems) - len(problems); extra > 0 {
+		top = append(top, style.Error.Render(fmt.Sprintf("! and %d more problems (bridge inbox shows them all)", extra)))
 	}
 	for _, t := range m.res.Truncated {
 		top = append(top, style.Banner.Render(t+" has more than 1000 results; showing the first 1000"))
