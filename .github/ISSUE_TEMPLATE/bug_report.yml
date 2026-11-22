@@ -51,5 +51,10 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: Output or screenshot
+      label: Output
       render: shell
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Drag an image here if the problem is in the terminal UI.
