@@ -49,4 +49,7 @@ type Forge interface {
 	ProjectItems(ctx context.Context, project ProjectID) ([]ProjectItem, error)
 	AddToProject(ctx context.Context, project ProjectID, item ItemID) (ProjectItemID, error)
 	SetProjectField(ctx context.Context, project ProjectID, item ProjectItemID, field FieldID, value FieldValue) error
+
+	PRDiff(ctx context.Context, pr PRID) (Diff, error)
+	SubmitReview(ctx context.Context, pr PRID, review Review) error
 }

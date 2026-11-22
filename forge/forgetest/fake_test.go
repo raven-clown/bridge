@@ -59,6 +59,33 @@ func TestFakeCommentAppends(t *testing.T) {
 	}
 }
 
+func TestFakeSubmitReviewRecords(t *testing.T) {
+	f := New()
+	pr := forge.ItemID{Repo: repo, Number: 3}
+	f.Diffs[pr] = forge.Diff{PR: pr, HeadSHA: "abc"}
+	rv := forge.Review{CommitSHA: "abc", Event: forge.EventApprove}
+	if err := f.SubmitReview(context.Background(), pr, rv); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Reviews[pr]) != 1 || f.Reviews[pr][0].Event != forge.EventApprove {
+		t.Fatalf("reviews = %+v", f.Reviews[pr])
+	}
+	d, err := f.PRDiff(context.Background(), pr)
+	if err != nil || d.HeadSHA != "abc" {
+		t.Fatalf("diff %+v err %v", d, err)
+	}
+}
+
+func TestFakeSubmitReviewStaleHead(t *testing.T) {
+	f := New()
+	pr := forge.ItemID{Repo: repo, Number: 3}
+	f.Diffs[pr] = forge.Diff{PR: pr, HeadSHA: "new"}
+	err := f.SubmitReview(context.Background(), pr, forge.Review{CommitSHA: "old", Event: forge.EventComment, Body: "x"})
+	if !errors.Is(err, forge.ErrStaleHead) || len(f.Reviews[pr]) != 0 {
+		t.Fatalf("err %v reviews %+v", err, f.Reviews[pr])
+	}
+}
+
 func TestFakeImplementsForge(t *testing.T) {
 	var _ forge.Forge = New()
 }
