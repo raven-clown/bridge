@@ -149,7 +149,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.refreshing = true
-		return m, m.refresh()
+		r, ctx := m.deps.Refresher, m.ctx
+		return m, func() tea.Msg { return refreshDoneMsg(r.RefreshRescan(ctx)) }
 	case msgs.Status:
 		m.status = msg.Text
 		return m, nil

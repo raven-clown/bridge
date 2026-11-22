@@ -10,6 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
+
 	"github.com/raven-clown/bridge/forge"
 	"github.com/raven-clown/bridge/forge/forgetest"
 	"github.com/raven-clown/bridge/inbox"
@@ -173,6 +176,50 @@ func TestOfflineWithoutCachedLoginFails(t *testing.T) {
 	h.fake.Err["WhoAmI"] = errors.New("offline")
 	if _, _, err := h.run("inbox"); err == nil || !strings.Contains(err.Error(), "offline") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func gitRepo(t *testing.T, dir, remote string) {
+	t.Helper()
+	r, err := git.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.CreateRemote(&gitconfig.RemoteConfig{Name: "origin", URLs: []string{remote}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRepoCacheRescansWhenRootsChange(t *testing.T) {
+	h := newHarness(t, "")
+	first, second := t.TempDir(), t.TempDir()
+	gitRepo(t, filepath.Join(first, "a"), "https://github.com/o/a.git")
+	gitRepo(t, filepath.Join(second, "b"), "https://github.com/o/b.git")
+
+	write := func(root string) {
+		yaml := "roots: [\"" + filepath.ToSlash(root) + "\"]\ndepth: 1\n"
+		if err := os.WriteFile(h.opts.configPath, []byte(yaml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := func() []string {
+		a, err := wire(t.Context(), h.opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range a.repos {
+			out = append(out, r.Repo.Name)
+		}
+		return out
+	}
+	write(first)
+	if got := names(); len(got) != 1 || got[0] != "a" {
+		t.Fatalf("first roots: %v", got)
+	}
+	write(second)
+	if got := names(); len(got) != 1 || got[0] != "b" {
+		t.Fatalf("after changing roots: %v", got)
 	}
 }
 

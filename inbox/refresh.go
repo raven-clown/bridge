@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -68,8 +69,34 @@ type Refresher struct {
 	Repos  []discover.LocalRepo
 	Extra  []forge.RepoID
 	Now    func() time.Time
+	// Rescan finds the local repositories again; RefreshRescan calls it.
+	Rescan func(context.Context) ([]discover.LocalRepo, error)
 
-	last *Result
+	last       *Result
+	writable   []forge.RepoID
+	writableOK bool
+	branches   map[forge.RepoID][]forge.Branch
+	branchesAt time.Time
+}
+
+// Branches change slowly and cost one query per repository, so they are
+// fetched at most this often; the permission check runs once per scan.
+const branchInterval = 10 * time.Minute
+
+// RefreshRescan finds the local repositories again before refreshing, for a
+// refresh the user asked for.
+func (r *Refresher) RefreshRescan(ctx context.Context) Result {
+	if r.Rescan != nil {
+		repos, err := r.Rescan(ctx)
+		if err != nil {
+			res := r.Refresh(ctx)
+			res.Problems = append(res.Problems, Problem{Source: "discover", Err: err})
+			return res
+		}
+		r.Repos = repos
+		r.writableOK, r.branches = false, nil
+	}
+	return r.Refresh(ctx)
 }
 
 const cacheName = "inbox"
@@ -90,10 +117,16 @@ func (r *Refresher) watched(ctx context.Context) (incoming []forge.RepoID, local
 			clones = append(clones, *lr.Repo)
 		}
 	}
-	if len(clones) > 0 {
+	switch {
+	case len(clones) == 0:
+	case r.writableOK:
+		mine = slices.Clone(r.writable)
+	default:
 		mine, err = r.Forge.Writable(ctx, clones)
 		if err != nil {
 			mine = slices.DeleteFunc(slices.Clone(clones), func(id forge.RepoID) bool { return !strings.EqualFold(id.Owner, r.Me) })
+		} else {
+			r.writable, r.writableOK = slices.Clone(mine), true
 		}
 	}
 	incoming = slices.Clone(mine)
@@ -189,20 +222,32 @@ func (r *Refresher) Refresh(ctx context.Context) Result {
 		mu.Unlock()
 		return nil
 	})
-	for _, repo := range mine {
-		g.Go(func() error {
-			b, err := r.Forge.ListBranches(ctx, repo)
-			if err != nil {
-				fail("branches", &repo, err)
+	fetchBranches := r.branches == nil || now().Sub(r.branchesAt) >= branchInterval
+	if fetchBranches {
+		for _, repo := range mine {
+			g.Go(func() error {
+				b, err := r.Forge.ListBranches(ctx, repo)
+				if err != nil {
+					fail("branches", &repo, err)
+					return nil
+				}
+				mu.Lock()
+				in.Branches[repo] = b
+				mu.Unlock()
 				return nil
+			})
+		}
+	} else {
+		for _, repo := range mine {
+			if b, ok := r.branches[repo]; ok {
+				in.Branches[repo] = b
 			}
-			mu.Lock()
-			in.Branches[repo] = b
-			mu.Unlock()
-			return nil
-		})
+		}
 	}
 	_ = g.Wait()
+	if fetchBranches {
+		r.branches, r.branchesAt = maps.Clone(in.Branches), now()
+	}
 
 	in.Seen = func(forge.ItemID) (*time.Time, *time.Time) { return nil, nil }
 	if r.Store != nil {

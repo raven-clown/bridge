@@ -180,7 +180,8 @@ func TestRefreshKeepsItemsFromFailedSources(t *testing.T) {
 	if len(second.Items) != len(first.Items) {
 		t.Fatalf("items %d, want %d kept from the last refresh", len(second.Items), len(first.Items))
 	}
-	if len(second.Problems) != 5 {
+	// Branches are not fetched again within ten minutes, so four sources fail.
+	if len(second.Problems) != 4 {
 		t.Fatalf("problems = %+v", second.Problems)
 	}
 	cached, _ := r.Cached()
@@ -228,6 +229,71 @@ func TestRefreshCollapsesBranchProblems(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("branch problems = %d: %+v", n, res.Problems)
+	}
+}
+
+func count(calls []string, name string) int {
+	n := 0
+	for _, c := range calls {
+		if c == name {
+			n++
+		}
+	}
+	return n
+}
+
+func TestRefreshCachesWritable(t *testing.T) {
+	f := fakeWithAll()
+	r := refresher(t, f)
+	r.Refresh(context.Background())
+	r.Refresh(context.Background())
+	if n := count(f.CallLog(), "Writable"); n != 1 {
+		t.Fatalf("Writable called %d times", n)
+	}
+}
+
+func TestRefreshBranchesEveryTenMinutes(t *testing.T) {
+	f := fakeWithAll()
+	r := refresher(t, f)
+	clock := t0
+	r.Now = func() time.Time { return clock }
+	r.Refresh(context.Background())
+	clock = clock.Add(5 * time.Minute)
+	res := r.Refresh(context.Background())
+	if n := count(f.CallLog(), "ListBranches"); n != 1 {
+		t.Fatalf("ListBranches called %d times within 10 minutes", n)
+	}
+	pushed := 0
+	for _, it := range res.Items {
+		if it.Kind == forge.PushedBranch {
+			pushed++
+		}
+	}
+	if pushed != 1 {
+		t.Fatalf("pushed branch lost between branch fetches: %d", pushed)
+	}
+	clock = clock.Add(6 * time.Minute)
+	r.Refresh(context.Background())
+	if n := count(f.CallLog(), "ListBranches"); n != 2 {
+		t.Fatalf("ListBranches called %d times after 11 minutes", n)
+	}
+}
+
+func TestRefreshRescanPicksUpNewRepos(t *testing.T) {
+	f := fakeWithAll()
+	r := refresher(t, f)
+	r.Extra = nil
+	r.Refresh(context.Background())
+	b := repoB
+	r.Rescan = func(context.Context) ([]discover.LocalRepo, error) {
+		return []discover.LocalRepo{{Path: "/src/b", Repo: &b}}, nil
+	}
+	r.RefreshRescan(context.Background())
+	if got := f.LastIncoming(); !slices.Contains(got, repoB) || slices.Contains(got, repoA) {
+		t.Fatalf("incoming asked for %v", got)
+	}
+	if n := count(f.CallLog(), "Writable"); n != 2 {
+		t.Fatalf("Writable called %d times, want a fresh check after rescan", n)
 	}
 }
 
