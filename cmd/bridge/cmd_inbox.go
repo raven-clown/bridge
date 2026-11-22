@@ -40,7 +40,7 @@ func newInboxCmd(opts *wireOptions) *cobra.Command {
 				wantRepo = &r
 			}
 
-			a, err := wire(cmd.Context(), *opts)
+			a, err := wireCmd(cmd, *opts)
 			if err != nil {
 				return err
 			}

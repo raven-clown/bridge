@@ -63,7 +63,7 @@ func newAuthCmd(opts *wireOptions) *cobra.Command {
 		Short: "Show who you are signed in as and where the token comes from",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			a, err := wire(cmd.Context(), *opts)
+			a, err := wireCmd(cmd, *opts)
 			if err != nil {
 				return err
 			}

@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/raven-clown/bridge/auth"
 	"github.com/raven-clown/bridge/config"
@@ -13,6 +16,7 @@ import (
 	"github.com/raven-clown/bridge/forge"
 	"github.com/raven-clown/bridge/forge/github"
 	"github.com/raven-clown/bridge/inbox"
+	"github.com/raven-clown/bridge/internal/termsafe"
 	"github.com/raven-clown/bridge/store"
 )
 
@@ -37,6 +41,37 @@ type app struct {
 	extra []forge.RepoID
 	env   func(string) string
 	now   func() time.Time
+
+	warnings []string
+}
+
+// rootWarnings names roots that will find nothing, so an empty inbox is
+// explained instead of silent.
+func rootWarnings(roots []string) []string {
+	var out []string
+	for _, r := range roots {
+		switch {
+		case strings.HasPrefix(r, "~"):
+			out = append(out, fmt.Sprintf("root %s: ~ is not expanded, write the full path", r))
+		default:
+			if _, err := os.Stat(r); err != nil {
+				out = append(out, fmt.Sprintf("root %s does not exist", r))
+			}
+		}
+	}
+	return out
+}
+
+// wireCmd is wire for subcommands: it prints the warnings to stderr.
+func wireCmd(cmd *cobra.Command, o wireOptions) (*app, error) {
+	a, err := wire(cmd.Context(), o)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range a.warnings {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+termsafe.Line(w))
+	}
+	return a, nil
 }
 
 type exitError struct {
@@ -115,7 +150,7 @@ func wire(ctx context.Context, o wireOptions) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &app{cfg: cfg, forge: f, store: s, me: me, env: o.env, now: o.now}
+	a := &app{cfg: cfg, forge: f, store: s, me: me, env: o.env, now: o.now, warnings: rootWarnings(cfg.Roots)}
 	for _, r := range cfg.Repos {
 		id, err := forge.ParseRepoID(r)
 		if err != nil {

@@ -83,7 +83,7 @@ Working name: `bridge`, as in a ship's bridge. The name is not final.
 |   auth/       token sources: env, keyring, device flow         |
 +----------------------------------------------------------------+
             |                      |                     |
-      go-git (git)    go-github + githubv4 (API)     go-keyring
+      go-git (git)   net/http: GraphQL + REST (API)   go-keyring
 ```
 
 **Packages**
@@ -93,7 +93,7 @@ Working name: `bridge`, as in a ship's bridge. The name is not final.
 
 **Key dependencies**
 - `charmbracelet/bubbletea`, `bubbles` and `lipgloss` for the terminal. Windows Terminal and ConPTY are supported.
-- `google/go-github` for REST and `shurcooL/githubv4` for GraphQL, with typed query structs. Projects v2 is GraphQL only, so the GraphQL path is first class. Device flow login is a small package of our own over the two OAuth endpoints.
+- GitHub is called with `net/http` directly: GraphQL query strings for reads, REST for most writes, decoded into our own structs. Search results need `... on Issue` and `... on PullRequest` fragments, which typed query libraries make awkward, and raw JSON is easy to record as test fixtures. Projects v2 is GraphQL only, so the GraphQL path is first class. Device flow login is a small package of our own over the two OAuth endpoints.
 - `go-git/go-git` for local repositories: remotes, HEAD, ahead/behind, worktrees, dirty state, fast-forward. Pure Go, no `git` binary. Status on a large repository is the slow path, so discovery caches it and the repos view refreshes it in the background.
 - `zalando/go-keyring` for the OS credential store (Windows Credential Manager, macOS Keychain, Secret Service).
 - `gopkg.in/yaml.v3` for config, `spf13/cobra` for subcommands, `charmbracelet/x/exp/teatest` for TUI tests, `net/http/httptest` with recorded fixtures for API tests.

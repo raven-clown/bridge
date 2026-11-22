@@ -31,6 +31,8 @@ type Deps struct {
 	Config    config.Config
 	Me        string
 	Now       func() time.Time
+	// Warning starts in the status bar, such as a root that does not exist.
+	Warning string
 }
 
 type (
@@ -72,7 +74,7 @@ func newApp(ctx context.Context, d Deps) Model {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	m := Model{ctx: ctx, deps: d, width: 80, height: 24, inbox: inboxview.New(80, 23, d.Now)}
+	m := Model{ctx: ctx, deps: d, width: 80, height: 24, inbox: inboxview.New(80, 23, d.Now), status: termsafe.Line(d.Warning)}
 	if res, ok := d.Refresher.Cached(); ok {
 		m.inbox = m.inbox.SetResult(res, true)
 	}
@@ -112,7 +114,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.thread = threadview.New(msg.ID, threadview.Deps{Forge: m.deps.Forge, Store: m.deps.Store, Now: m.deps.Now}, m.width, m.height-1)
 		return m, m.thread.Init()
 	case msgs.Back:
+		// Replies and seen marks change the inbox, so refresh on the way back.
+		left := m.view
 		m.view = viewInbox
+		if left == viewThread && !m.refreshing {
+			m.refreshing = true
+			return m, m.refresh()
+		}
 		return m, nil
 	case msgs.OpenTriage:
 		m.triaging = true

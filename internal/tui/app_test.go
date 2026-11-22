@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -148,6 +149,18 @@ func TestAppOpensThreadAndBack(t *testing.T) {
 	m = drive(m, tuitest.Key("q"))
 	if strings.Contains(m.View(), "Body text") {
 		t.Fatalf("still on the thread:\n%s", m.View())
+	}
+}
+
+func TestAppRefreshesAfterThread(t *testing.T) {
+	d, f := deps(t)
+	id := forge.ItemID{Repo: repoA, Number: 7}
+	f.Threads[id] = forge.Thread{Item: forge.Item{ID: id}}
+	m := drive(sized(newApp(context.Background(), d)), msgs.OpenThread{ID: id})
+	before := len(f.CallLog())
+	m = drive(m, tuitest.Key("q"))
+	if !slices.Contains(f.CallLog()[before:], "ListMyPRs") || !strings.Contains(m.View(), "refreshed") {
+		t.Fatalf("no refresh after leaving the thread; calls %v", f.CallLog()[before:])
 	}
 }
 

@@ -70,7 +70,11 @@ func TestParseRef(t *testing.T) {
 		{in: "https://github.com/o/a/issues/12", want: ref(12)},
 		{in: "https://github.com/o/a/issues/12#issuecomment-1", want: ref(12)},
 		{in: "o/a#12", want: ref(12)},
-		{in: "ghe.corp/t/x#3", want: forge.ItemID{Repo: forge.RepoID{Host: "ghe.corp", Owner: "t", Name: "x"}, Number: 3}},
+		{in: "ghe.corp/t/x#3", wantErr: true},
+		{in: "https://github.com/o/a/pull/12/files", want: ref(12)},
+		{in: "https://github.com/o/a/pull/12/commits", want: ref(12)},
+		{in: "https://github.com/o/a/pull/12/checks?x=1", want: ref(12)},
+		{in: "https://gitlab.com/o/a/issues/1", wantErr: true},
 		{in: "o/a", wantErr: true},
 		{in: "o/a#x", wantErr: true},
 		{in: "https://github.com/o/a", wantErr: true},
@@ -80,6 +84,24 @@ func TestParseRef(t *testing.T) {
 		if (err != nil) != tt.wantErr || (!tt.wantErr && got != tt.want) {
 			t.Errorf("parseRef(%q) = %v, %v", tt.in, got, err)
 		}
+	}
+}
+
+func TestParseRefOtherHostSaysUnsupported(t *testing.T) {
+	_, err := parseRef("https://gitlab.com/o/a/issues/1")
+	if err == nil || !strings.Contains(err.Error(), "gitlab.com") || !strings.Contains(err.Error(), "not supported yet") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestWireWarnsAboutMissingRoots(t *testing.T) {
+	h := newHarness(t, "roots: [\""+filepath.ToSlash(filepath.Join(t.TempDir(), "nope"))+"\", \"~/src\"]\n")
+	_, errOut, err := h.run("inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut, "does not exist") || !strings.Contains(errOut, "~ is not expanded") {
+		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
 

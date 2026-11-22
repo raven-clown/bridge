@@ -81,15 +81,19 @@ func parseRef(s string) (forge.ItemID, error) {
 		if err != nil {
 			return forge.ItemID{}, bad
 		}
+		if err := supportedHost(u.Hostname()); err != nil {
+			return forge.ItemID{}, err
+		}
+		// Subpages such as /pull/12/files or /pull/12/checks name the same pull request.
 		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-		if len(parts) != 4 || (parts[2] != "pull" && parts[2] != "issues") {
+		if len(parts) < 4 || (parts[2] != "pull" && parts[2] != "issues") {
 			return forge.ItemID{}, bad
 		}
 		n, err := strconv.Atoi(parts[3])
 		if err != nil || n <= 0 {
 			return forge.ItemID{}, bad
 		}
-		return forge.ItemID{Repo: forge.RepoID{Host: u.Hostname(), Owner: parts[0], Name: parts[1]}, Number: n}, nil
+		return forge.ItemID{Repo: forge.RepoID{Host: forge.DefaultHost, Owner: parts[0], Name: parts[1]}, Number: n}, nil
 	}
 	repo, num, ok := strings.Cut(s, "#")
 	if !ok {
@@ -99,11 +103,23 @@ func parseRef(s string) (forge.ItemID, error) {
 	if err != nil {
 		return forge.ItemID{}, bad
 	}
+	if err := supportedHost(r.Host); err != nil {
+		return forge.ItemID{}, err
+	}
 	n, err := strconv.Atoi(num)
 	if err != nil || n <= 0 {
 		return forge.ItemID{}, bad
 	}
 	return forge.ItemID{Repo: r, Number: n}, nil
+}
+
+// supportedHost refuses hosts other than github.com, since every call goes
+// to github.com until Enterprise hosts are supported.
+func supportedHost(host string) error {
+	if host != "" && !strings.EqualFold(host, forge.DefaultHost) && !strings.EqualFold(host, "www.github.com") {
+		return fmt.Errorf("pull requests on %s are not supported yet", host)
+	}
+	return nil
 }
 
 func issueURL(id forge.ItemID) string {

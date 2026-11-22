@@ -29,9 +29,11 @@ func newRootWith(out io.Writer, opts wireOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return tui.Run(cmd.Context(), tui.Deps{
-				Refresher: a.refresher(), Forge: a.forge, Store: a.store, Config: a.cfg, Me: a.me, Now: a.now,
-			})
+			d := tui.Deps{Refresher: a.refresher(), Forge: a.forge, Store: a.store, Config: a.cfg, Me: a.me, Now: a.now}
+			if len(a.warnings) > 0 {
+				d.Warning = a.warnings[0]
+			}
+			return tui.Run(cmd.Context(), d)
 		},
 	}
 	root.SetOut(out)

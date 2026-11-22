@@ -23,7 +23,7 @@ func newThreadCmd(opts *wireOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			a, err := wire(cmd.Context(), *opts)
+			a, err := wireCmd(cmd, *opts)
 			if err != nil {
 				return err
 			}
