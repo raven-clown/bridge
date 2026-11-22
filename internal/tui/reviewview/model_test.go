@@ -499,3 +499,47 @@ func TestReviewScrollsToCursor(t *testing.T) {
 		t.Fatalf("cursor not visible after G:\n%s", view)
 	}
 }
+
+func TestEmptyDiffKeysAreSafe(t *testing.T) {
+	d := sampleDiff()
+	d.Files = nil
+	m := newEnv(t, d).open(120, 30)
+	m, _ = press(m, "j", "G", "k", "g", "]", "}", "z", "x", "v", "c", "e", "D", "ctrl+d")
+	if !strings.Contains(m.View(), "no files changed") {
+		t.Fatalf("view:\n%s", m.View())
+	}
+}
+
+func TestFoldClearsRange(t *testing.T) {
+	m := newEnv(t, sampleDiff()).open(120, 30)
+	m, _ = press(m, "j", "j", "v", "z")
+	if m.rangeStart != -1 {
+		t.Fatalf("range start %d survived a fold", m.rangeStart)
+	}
+}
+
+func TestTabsExpandToStops(t *testing.T) {
+	d := sampleDiff()
+	d.Files[0].Patch = "@@ -1 +1 @@\n-a\n+\tx := 1"
+	m := newEnv(t, d).open(120, 30)
+	if !strings.Contains(m.View(), "+    x := 1") {
+		t.Fatalf("tab not expanded:\n%s", m.View())
+	}
+}
+
+func TestHorizontalScroll(t *testing.T) {
+	d := sampleDiff()
+	d.Files[0].Patch = "@@ -1 +1 @@\n-a\n+" + strings.Repeat("x", 150) + "TAIL"
+	m := newEnv(t, d).open(80, 30)
+	if strings.Contains(m.View(), "TAIL") {
+		t.Fatalf("long line not cut at 80 columns:\n%s", m.View())
+	}
+	m, _ = press(m, "l", "l", "l", "l", "l", "l", "l", "l", "l", "l", "l", "l")
+	if !strings.Contains(m.View(), "TAIL") {
+		t.Fatalf("l did not scroll right:\n%s", m.View())
+	}
+	m, _ = press(m, "0")
+	if strings.Contains(m.View(), "TAIL") {
+		t.Fatalf("0 did not scroll back:\n%s", m.View())
+	}
+}

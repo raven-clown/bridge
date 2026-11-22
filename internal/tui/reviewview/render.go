@@ -62,7 +62,7 @@ func (m Model) footLines() []string {
 	if m.status != "" {
 		lines = append(lines, style.Banner.Render(termsafe.Line(m.status)))
 	}
-	return append(lines, style.Dim.Render("c comment · v range · s summary · S submit · ]/[ hunk · }/{ file · z fold · x viewed · f files · q back"))
+	return append(lines, style.Dim.Render("c comment · v range · s summary · S submit · ]/[ hunk · }/{ file · z fold · x viewed · h/l scroll · f files · q back"))
 }
 
 // commentLines are the draft comments shown under row ri.
@@ -120,6 +120,27 @@ func fit(s string, w int) string {
 	return s + strings.Repeat(" ", max(w-ansi.StringWidth(s), 0))
 }
 
+// expandTabs replaces tabs with spaces to the next stop, since a raw tab
+// would move the terminal cursor past the width the layout measured.
+func expandTabs(s string) string {
+	if !strings.Contains(s, "\t") {
+		return s
+	}
+	var b strings.Builder
+	col := 0
+	for _, r := range s {
+		if r == '\t' {
+			n := tabWidth - col%tabWidth
+			b.WriteString(strings.Repeat(" ", n))
+			col += n
+			continue
+		}
+		b.WriteRune(r)
+		col += ansi.StringWidth(string(r))
+	}
+	return b.String()
+}
+
 func counts(p forge.FilePatch) string { return fmt.Sprintf("+%d -%d", p.Additions, p.Deletions) }
 
 func (m Model) renderRow(r row) string {
@@ -148,7 +169,10 @@ func (m Model) renderRow(r row) string {
 		}
 		return fmt.Sprintf("%4d", n)
 	}
-	text := termsafe.Line(l.Text)
+	text := termsafe.Line(expandTabs(l.Text))
+	if m.left > 0 {
+		text = ansi.Cut(text, m.left, m.left+maxLeft+ansi.StringWidth(text))
+	}
 	switch l.Kind {
 	case review.HunkHeader:
 		return style.Dim.Render("          @@ " + text)
@@ -196,6 +220,9 @@ func (m Model) View() string {
 	}
 
 	top, foot := m.topLines(), m.footLines()
+	if len(m.rows) == 0 {
+		return strings.Join(append(append(slices.Clone(top), style.Dim.Render("no files changed")), foot...), "\n")
+	}
 	h := max(m.bodyHeight(), 1)
 	diffWidth := m.width
 	var list []string

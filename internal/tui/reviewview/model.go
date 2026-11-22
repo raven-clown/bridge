@@ -60,6 +60,7 @@ type Model struct {
 	rows     []row
 	cursor   int
 	top      int
+	left     int
 	showList bool
 	status   string
 
@@ -101,8 +102,16 @@ func (m Model) Init() tea.Cmd {
 	}
 }
 
+const (
+	scrollStep = 8
+	maxLeft    = 2000
+	tabWidth   = 4
+)
+
+// rebuild renumbers the rows, so a range mark would point at the wrong line.
 func (m *Model) rebuild() {
 	m.rows = m.rows[:0]
+	m.rangeStart = -1
 	for fi, f := range m.files {
 		m.rows = append(m.rows, row{file: fi, line: HeaderRow})
 		if f.Collapsed {
@@ -180,7 +189,20 @@ func (m Model) key(k tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	m.status = ""
+	if len(m.rows) == 0 {
+		switch k.String() {
+		case "q", "esc", "o", "s", "S":
+		default:
+			return m, nil
+		}
+	}
 	switch k.String() {
+	case "h", "left":
+		m.left = max(m.left-scrollStep, 0)
+	case "l", "right":
+		m.left = min(m.left+scrollStep, maxLeft)
+	case "0":
+		m.left = 0
 	case "j", "down":
 		m.cursor = min(m.cursor+1, len(m.rows)-1)
 	case "k", "up":
