@@ -2,10 +2,8 @@ package github
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/raven-clown/bridge/forge"
 )
@@ -86,14 +84,5 @@ func (c *Client) SubmitReview(ctx context.Context, pr forge.PRID, rv forge.Revie
 		comments = append(comments, m)
 	}
 	body := map[string]any{"commit_id": string(rv.CommitSHA), "event": string(rv.Event), "body": rv.Body, "comments": comments}
-	err := c.rest(ctx, http.MethodPost, pullPath(pr)+"/reviews", body, nil)
-	// GitHub answers 422 when a commented line or the commit is no longer in
-	// the pull request, which is what a push during the review causes.
-	if err != nil && strings.Contains(err.Error(), "422") {
-		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "commit_id") || strings.Contains(msg, "line") || strings.Contains(msg, "diff") {
-			return errors.Join(forge.ErrStaleHead, err)
-		}
-	}
-	return err
+	return c.rest(ctx, http.MethodPost, pullPath(pr)+"/reviews", body, nil)
 }

@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/raven-clown/bridge/forge"
@@ -24,7 +25,9 @@ func Submit(ctx context.Context, f forge.Forge, s *store.Store, d Draft, event f
 	if err != nil {
 		return err
 	}
-	if d.Stale(diff.HeadSHA) && !force {
+	// Only comments can point at moved lines; an approval of the new head
+	// with none needs no second confirmation.
+	if d.Stale(diff.HeadSHA) && !force && len(d.Comments) > 0 {
 		return forge.ErrStaleHead
 	}
 	rv := forge.Review{CommitSHA: diff.HeadSHA, Event: event, Body: d.Summary}
@@ -34,7 +37,21 @@ func Submit(ctx context.Context, f forge.Forge, s *store.Store, d Draft, event f
 		})
 	}
 	if err := f.SubmitReview(ctx, d.PR, rv); err != nil {
-		return err
+		return staleOr(ctx, f, d.PR, diff.HeadSHA, force, err)
 	}
 	return s.DeleteReviewDraft(d.PR)
+}
+
+// staleOr decides what a 422 means by looking at the head again: if someone
+// pushed between the check and the submit, the comments may no longer fit;
+// otherwise GitHub's own message is the answer.
+func staleOr(ctx context.Context, f forge.Forge, pr forge.PRID, sent forge.SHA, force bool, err error) error {
+	var api *forge.APIError
+	if force || !errors.As(err, &api) || api.Status != http.StatusUnprocessableEntity {
+		return err
+	}
+	if now, derr := f.PRDiff(ctx, pr); derr == nil && now.HeadSHA != sent {
+		return errors.Join(forge.ErrStaleHead, err)
+	}
+	return err
 }

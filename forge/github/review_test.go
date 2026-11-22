@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/raven-clown/bridge/forge"
@@ -127,15 +128,27 @@ func TestSubmitReviewBody(t *testing.T) {
 	}
 }
 
-func TestSubmitReviewStale422(t *testing.T) {
-	f := newFakeGH(t)
-	f.REST = restMux(t, map[string]func(map[string]any) (int, any){
-		"POST /repos/o/a/pulls/42/reviews": func(map[string]any) (int, any) {
-			return 422, map[string]any{"message": "Unprocessable Entity: pull_request_review_thread.line must be part of the diff"}
-		},
-	})
-	err := f.client().SubmitReview(context.Background(), pr42, forge.Review{CommitSHA: "old", Event: forge.EventApprove})
-	if !errors.Is(err, forge.ErrStaleHead) {
-		t.Fatalf("got %v", err)
+func TestSubmitReview422KeepsGitHubDetail(t *testing.T) {
+	tests := []struct {
+		name string
+		body map[string]any
+		want string
+	}{
+		{"string errors", map[string]any{"message": "Unprocessable Entity", "errors": []any{"Can not approve your own pull request"}}, "Can not approve your own pull request"},
+		{"object errors", map[string]any{"message": "Validation Failed", "errors": []any{map[string]any{"resource": "PullRequestReview", "code": "custom", "message": "Line could not be resolved"}}}, "Line could not be resolved"},
+	}
+	for _, tt := range tests {
+		f := newFakeGH(t)
+		f.REST = restMux(t, map[string]func(map[string]any) (int, any){
+			"POST /repos/o/a/pulls/42/reviews": func(map[string]any) (int, any) { return 422, tt.body },
+		})
+		err := f.client().SubmitReview(context.Background(), pr42, forge.Review{CommitSHA: "old", Event: forge.EventApprove})
+		var api *forge.APIError
+		if !errors.As(err, &api) || api.Status != 422 || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s: got %v", tt.name, err)
+		}
+		if errors.Is(err, forge.ErrStaleHead) {
+			t.Errorf("%s: the client must not guess a moved head from the text", tt.name)
+		}
 	}
 }

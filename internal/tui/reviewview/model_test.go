@@ -341,7 +341,9 @@ func TestRequestChangesAsksForSummary(t *testing.T) {
 
 func TestSubmitStaleOffersChoice(t *testing.T) {
 	e := newEnv(t, sampleDiff())
-	if err := review.SaveDraft(e.s, review.Draft{PR: pr, HeadSHA: "older", Summary: "s"}); err != nil {
+	stale := review.Draft{PR: pr, HeadSHA: "older", Summary: "s"}
+	stale.Add(review.DraftComment{Path: "main.go", Line: 2, Side: forge.SideRight, Body: "keep this"})
+	if err := review.SaveDraft(e.s, stale); err != nil {
 		t.Fatal(err)
 	}
 	m := e.open(120, 30)

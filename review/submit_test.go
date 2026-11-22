@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/raven-clown/bridge/forge"
@@ -91,6 +92,49 @@ func TestSubmitErrorKeepsDraft(t *testing.T) {
 	}
 	if got, ok, _ := LoadDraft(s, pr); !ok || len(got.Comments) != 1 {
 		t.Fatal("draft lost after a failed submit")
+	}
+}
+
+// movingForge reports a new head from the second PRDiff call on, as when
+// someone pushes between the check and the submit.
+type movingForge struct {
+	*forgetest.Fake
+	calls int
+}
+
+func (m *movingForge) PRDiff(ctx context.Context, id forge.PRID) (forge.Diff, error) {
+	d, err := m.Fake.PRDiff(ctx, id)
+	m.calls++
+	if m.calls > 1 {
+		d.HeadSHA = "pushed"
+	}
+	return d, err
+}
+
+func TestSubmit422AfterAPushIsStale(t *testing.T) {
+	f, s := submitSetup(t, "h")
+	f.Err["SubmitReview"] = &forge.APIError{Status: 422, Message: "Line could not be resolved"}
+	d := withComment(Draft{PR: pr, HeadSHA: "h", Summary: "s"})
+	err := Submit(context.Background(), &movingForge{Fake: f}, s, d, forge.EventComment, false)
+	if !errors.Is(err, forge.ErrStaleHead) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestSubmit422WithSameHeadShowsGitHubMessage(t *testing.T) {
+	f, s := submitSetup(t, "h")
+	f.Err["SubmitReview"] = &forge.APIError{Status: 422, Message: "Can not approve your own pull request"}
+	err := Submit(context.Background(), f, s, Draft{PR: pr, HeadSHA: "h"}, forge.EventApprove, false)
+	if errors.Is(err, forge.ErrStaleHead) || err == nil || !strings.Contains(err.Error(), "Can not approve your own pull request") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestSubmitWithoutCommentsIgnoresMovedHead(t *testing.T) {
+	f, s := submitSetup(t, "new")
+	d := Draft{PR: pr, HeadSHA: "old", Viewed: []string{"a.go"}}
+	if err := Submit(context.Background(), f, s, d, forge.EventApprove, false); err != nil {
+		t.Fatalf("an approval with no comments should not need force: %v", err)
 	}
 }
 

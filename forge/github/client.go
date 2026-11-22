@@ -128,10 +128,19 @@ func (c *Client) do(ctx context.Context, method, url string, body any) ([]byte, 
 
 func (c *Client) statusError(resp *http.Response, data []byte) error {
 	var body struct {
-		Message string `json:"message"`
+		Message string            `json:"message"`
+		Errors  []json.RawMessage `json:"errors"`
 	}
 	_ = json.Unmarshal(data, &body)
-	msg := c.redact(body.Message)
+	msg := body.Message
+	if details := errorDetails(body.Errors); details != "" {
+		if msg == "" || strings.EqualFold(msg, "Unprocessable Entity") || strings.EqualFold(msg, "Validation Failed") {
+			msg = details
+		} else {
+			msg += ": " + details
+		}
+	}
+	msg = c.redact(msg)
 
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
 		if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil {
@@ -141,10 +150,7 @@ func (c *Client) statusError(resp *http.Response, data []byte) error {
 			return &forge.RateLimitedError{RetryAt: c.resetAt()}
 		}
 	}
-	err := fmt.Errorf("github: %s", resp.Status)
-	if msg != "" {
-		err = fmt.Errorf("github: %s: %s", resp.Status, msg)
-	}
+	err := &forge.APIError{Status: resp.StatusCode, Text: resp.Status, Message: msg}
 	switch resp.StatusCode {
 	case http.StatusNotFound:
 		return errors.Join(forge.ErrNotFound, err)
@@ -161,6 +167,35 @@ func (c *Client) statusError(resp *http.Response, data []byte) error {
 }
 
 var errGateway = errors.New("github did not answer in time")
+
+// errorDetails reads GitHub's errors list, whose entries are plain strings
+// or objects with a message (or a code and field).
+func errorDetails(raw []json.RawMessage) string {
+	var out []string
+	for _, r := range raw {
+		var s string
+		if json.Unmarshal(r, &s) == nil {
+			out = append(out, s)
+			continue
+		}
+		var o struct {
+			Message string `json:"message"`
+			Code    string `json:"code"`
+			Field   string `json:"field"`
+		}
+		if json.Unmarshal(r, &o) == nil {
+			switch {
+			case o.Message != "":
+				out = append(out, o.Message)
+			case o.Field != "":
+				out = append(out, o.Field+" "+o.Code)
+			case o.Code != "":
+				out = append(out, o.Code)
+			}
+		}
+	}
+	return strings.Join(out, "; ")
+}
 
 func (c *Client) rest(ctx context.Context, method, path string, body, out any) error {
 	data, err := c.do(ctx, method, c.restBase+path, body)

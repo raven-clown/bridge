@@ -13,6 +13,22 @@ var (
 	ErrProjectsScope = errors.New("projects need the read:project scope")
 )
 
+// APIError is a refusal from the forge with its HTTP status. Message holds
+// the forge's own words, including the per-field details GitHub puts in its
+// errors list, since "422 Unprocessable Entity" alone tells nobody anything.
+type APIError struct {
+	Status  int
+	Text    string
+	Message string
+}
+
+func (e *APIError) Error() string {
+	if e.Message == "" {
+		return "github: " + e.Text
+	}
+	return "github: " + e.Text + ": " + e.Message
+}
+
 type RateLimitedError struct {
 	RetryAt time.Time
 }
