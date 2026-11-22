@@ -102,11 +102,30 @@ func (m Model) startComment() (Model, tea.Cmd) {
 		target.Line = max(sline, line)
 	}
 	m.rangeStart = -1
-	m.compose = compose{target: target, edit: -1}
+	return m.openComment(compose{target: target, edit: -1}, "")
+}
+
+// openComment starts the editor for c, restoring unsent text left for the
+// same comment.
+func (m Model) openComment(c compose, body string) (Model, tea.Cmd) {
+	if p := m.draft.Pending; p != nil && p.Kind == pendingComment && p.Edit == c.edit && samePlace(p.Target, c.target) {
+		body = p.Body
+	}
+	m.compose = c
 	m.mode = modeComment
 	m.editor = newEditor("Write a review comment in Markdown")
 	m.editor.SetWidth(max(m.width-6, 20))
+	m.editor.SetValue(body)
 	return m, m.editor.Focus()
+}
+
+const (
+	pendingComment = "comment"
+	pendingSummary = "summary"
+)
+
+func samePlace(a, b review.DraftComment) bool {
+	return a.Path == b.Path && a.Line == b.Line && a.Side == b.Side && a.StartLine == b.StartLine
 }
 
 // orphansOf are draft comments that no longer fit the diff: on this file at
@@ -177,6 +196,10 @@ func (m Model) commentsAt(ri int) []int {
 }
 
 func (m Model) saveDraft() Model {
+	if m.draftErr != nil {
+		m.status = "not saved: the saved draft could not be read"
+		return m
+	}
 	if err := review.SaveDraft(m.deps.Store, m.draft); err != nil {
 		m.status = "could not save the draft: " + err.Error()
 	}
@@ -200,12 +223,8 @@ func (m Model) commentKey(k tea.KeyMsg) (Model, tea.Cmd) {
 			m.status = "no draft comment on this line"
 			return m, nil
 		}
-		m.compose = compose{target: m.draft.Comments[at[0]], edit: at[0]}
-		m.mode = modeComment
-		m.editor = newEditor("")
-		m.editor.SetWidth(max(m.width-6, 20))
-		m.editor.SetValue(m.draft.Comments[at[0]].Body)
-		return m, m.editor.Focus()
+		c := m.draft.Comments[at[0]]
+		return m.openComment(compose{target: c, edit: at[0]}, c.Body)
 	case "D":
 		at := m.commentsAt(m.cursor)
 		if len(at) == 0 {
@@ -226,7 +245,11 @@ func (m Model) startSummary(then *forge.ReviewEvent) (Model, tea.Cmd) {
 	m.mode, m.pending = modeSummary, then
 	m.editor = newEditor("Summary of the review")
 	m.editor.SetWidth(max(m.width-6, 20))
-	m.editor.SetValue(m.draft.Summary)
+	body := m.draft.Summary
+	if p := m.draft.Pending; p != nil && p.Kind == pendingSummary {
+		body = p.Body
+	}
+	m.editor.SetValue(body)
 	return m, m.editor.Focus()
 }
 
@@ -234,9 +257,17 @@ func (m Model) editorKey(k tea.KeyMsg) (Model, tea.Cmd) {
 	switch k.String() {
 	case "esc":
 		m.mode, m.pending = modeNormal, nil
+		if m.draft.Pending != nil {
+			key := "c"
+			if m.draft.Pending.Kind == pendingSummary {
+				key = "s"
+			}
+			m.status = "unsent text kept; " + key + " opens it again"
+		}
 		return m, nil
 	case "ctrl+s":
 		body := m.editor.Value()
+		m.draft.Pending = nil
 		if m.mode == modeSummary {
 			m.draft.Summary = body
 			m.mode = modeNormal
@@ -249,7 +280,9 @@ func (m Model) editorKey(k tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		if blank(body) {
-			m.mode, m.status = modeNormal, "empty comment discarded"
+			m.mode = modeNormal
+			m = m.saveDraft()
+			m.status = "empty comment discarded"
 			return m, nil
 		}
 		c := m.compose.target
@@ -262,8 +295,17 @@ func (m Model) editorKey(k tea.KeyMsg) (Model, tea.Cmd) {
 		m.mode = modeNormal
 		return m.saveDraft(), nil
 	}
+	before := m.editor.Value()
 	var cmd tea.Cmd
 	m.editor, cmd = m.editor.Update(k)
+	if body := m.editor.Value(); body != before {
+		p := &review.Pending{Kind: pendingSummary, Edit: -1, Body: body}
+		if m.mode == modeComment {
+			p.Kind, p.Target, p.Edit = pendingComment, m.compose.target, m.compose.edit
+		}
+		m.draft.Pending = p
+		m = m.saveDraft()
+	}
 	return m, cmd
 }
 

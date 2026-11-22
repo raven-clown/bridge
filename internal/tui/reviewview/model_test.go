@@ -48,16 +48,18 @@ func sampleDiff() forge.Diff {
 }
 
 type env struct {
-	f *forgetest.Fake
-	s *store.Store
-	d Deps
+	f   *forgetest.Fake
+	s   *store.Store
+	d   Deps
+	dir string
 }
 
 func newEnv(t *testing.T, diff forge.Diff) env {
 	t.Helper()
 	f := forgetest.New()
 	f.Diffs[pr] = diff
-	s, err := store.Open(filepath.Join(t.TempDir(), "state"))
+	dir := filepath.Join(t.TempDir(), "state")
+	s, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +67,7 @@ func newEnv(t *testing.T, diff forge.Diff) env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return env{f: f, s: s, d: Deps{Forge: f, Store: s, Config: cfg, Now: func() time.Time { return now }}}
+	return env{f: f, s: s, dir: dir, d: Deps{Forge: f, Store: s, Config: cfg, Now: func() time.Time { return now }}}
 }
 
 func (e env) open(width, height int) Model {
@@ -416,6 +418,54 @@ func TestBlankCommentNotSaved(t *testing.T) {
 	}
 	if !strings.Contains(m.View(), "empty comment") {
 		t.Fatalf("view:\n%s", m.View())
+	}
+}
+
+func TestTypedCommentSurvivesEsc(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "j", "j", "j", "j", "c")
+	m = typeText(m, "half written")
+	m, _ = press(m, "esc")
+	if p := draftOf(t, e).Pending; p == nil || p.Body != "half written" {
+		t.Fatalf("pending = %+v", p)
+	}
+	m, _ = press(m, "c")
+	if !strings.Contains(m.View(), "half written") {
+		t.Fatalf("pending text not restored:\n%s", m.View())
+	}
+	_, _ = press(m, "ctrl+s")
+	d := draftOf(t, e)
+	if d.Pending != nil || len(d.Comments) != 1 || d.Comments[0].Body != "half written" {
+		t.Fatalf("draft = %+v", d)
+	}
+}
+
+func TestTypedSummarySurvivesReopen(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "s")
+	_ = typeText(m, "summary so far")
+	m = e.open(120, 30)
+	m, _ = press(m, "s")
+	if !strings.Contains(m.View(), "summary so far") {
+		t.Fatalf("summary not restored:\n%s", m.View())
+	}
+}
+
+func TestUnreadableDraftIsNotOverwritten(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	path := filepath.Join(e.dir, "drafts", "review-github.com__o__a__42.json")
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := e.open(120, 30)
+	if !strings.Contains(m.View(), "could not be read") {
+		t.Fatalf("no warning:\n%s", m.View())
+	}
+	_, _ = press(m, "x")
+	if b, _ := os.ReadFile(path); string(b) != "{not json" {
+		t.Fatalf("the unreadable draft was overwritten: %q", b)
 	}
 }
 

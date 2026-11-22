@@ -36,11 +36,12 @@ type row struct {
 }
 
 type loadedMsg struct {
-	pr    forge.PRID
-	diff  forge.Diff
-	draft review.Draft
-	stale bool
-	err   error
+	pr       forge.PRID
+	diff     forge.Diff
+	draft    review.Draft
+	stale    bool
+	draftErr error
+	err      error
 }
 
 type Model struct {
@@ -48,12 +49,13 @@ type Model struct {
 	deps          Deps
 	width, height int
 
-	loaded bool
-	err    error
-	diff   forge.Diff
-	files  []review.File
-	draft  review.Draft
-	stale  bool
+	loaded   bool
+	err      error
+	diff     forge.Diff
+	files    []review.File
+	draft    review.Draft
+	stale    bool
+	draftErr error
 
 	rows     []row
 	cursor   int
@@ -92,9 +94,10 @@ func (m Model) Init() tea.Cmd {
 		}
 		draft, ok, err := review.LoadDraft(d.Store, pr)
 		if err != nil || !ok {
-			draft = review.Draft{PR: pr, HeadSHA: diff.HeadSHA}
+			// The unreadable file is left alone; saveDraft refuses to write over it.
+			return loadedMsg{pr: pr, diff: diff, draft: review.Draft{PR: pr, HeadSHA: diff.HeadSHA}, draftErr: err}
 		}
-		return loadedMsg{pr: pr, diff: diff, draft: draft, stale: ok && draft.Stale(diff.HeadSHA)}
+		return loadedMsg{pr: pr, diff: diff, draft: draft, stale: draft.Stale(diff.HeadSHA)}
 	}
 }
 
@@ -136,7 +139,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.err != nil {
 			return m, nil
 		}
-		m.diff, m.draft, m.stale = msg.diff, msg.draft, msg.stale
+		m.diff, m.draft, m.stale, m.draftErr = msg.diff, msg.draft, msg.stale, msg.draftErr
 		m.files = nil
 		for _, p := range msg.diff.Files {
 			f, err := review.Parse(p)
@@ -210,9 +213,7 @@ func (m Model) key(k tea.KeyMsg) (Model, tea.Cmd) {
 	case "x":
 		path := m.files[m.rows[m.cursor].file].Patch.Path
 		m.draft.ToggleViewed(path)
-		if err := review.SaveDraft(m.deps.Store, m.draft); err != nil {
-			m.status = "could not save: " + err.Error()
-		}
+		m = m.saveDraft()
 	case "u":
 		if m.stale {
 			m.draft.HeadSHA, m.stale = m.diff.HeadSHA, false

@@ -21,6 +21,9 @@ func (m Model) topLines() []string {
 	if m.diff.Truncated {
 		lines = append(lines, style.Banner.Render("GitHub lists at most 3000 files; the rest are not shown"))
 	}
+	if m.draftErr != nil {
+		lines = append(lines, style.Error.Render(termsafe.Line("the saved draft could not be read ("+m.draftErr.Error()+"); nothing will be saved until it is fixed or removed")))
+	}
 	if m.stale {
 		lines = append(lines, style.Banner.Render("the pull request changed since this draft was started; check its comments, then u moves the draft to the new head"))
 	}

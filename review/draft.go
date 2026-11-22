@@ -24,6 +24,17 @@ type Draft struct {
 	Comments []DraftComment `json:"comments,omitempty"`
 	Summary  string         `json:"summary,omitempty"`
 	Viewed   []string       `json:"viewed,omitempty"`
+	Pending  *Pending       `json:"pending,omitempty"`
+}
+
+// Pending is text still in the editor, saved as it is typed so a closed
+// editor, ctrl+c or a crash never loses it. Kind is "comment" or "summary";
+// Edit is the index of the comment being changed, or -1.
+type Pending struct {
+	Kind   string       `json:"kind"`
+	Target DraftComment `json:"target"`
+	Edit   int          `json:"edit"`
+	Body   string       `json:"body"`
 }
 
 func (d Draft) Stale(current forge.SHA) bool { return d.HeadSHA != current }
