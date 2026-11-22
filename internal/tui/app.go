@@ -4,6 +4,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,9 +16,11 @@ import (
 	"github.com/raven-clown/bridge/inbox"
 	"github.com/raven-clown/bridge/internal/termsafe"
 	"github.com/raven-clown/bridge/internal/tui/inboxview"
+	"github.com/raven-clown/bridge/internal/tui/issueview"
 	"github.com/raven-clown/bridge/internal/tui/msgs"
 	"github.com/raven-clown/bridge/internal/tui/style"
 	"github.com/raven-clown/bridge/internal/tui/threadview"
+	"github.com/raven-clown/bridge/internal/tui/triageview"
 	"github.com/raven-clown/bridge/store"
 )
 
@@ -44,6 +47,7 @@ type view int
 const (
 	viewInbox view = iota
 	viewThread
+	viewIssue
 )
 
 type Model struct {
@@ -54,6 +58,10 @@ type Model struct {
 	view          view
 	inbox         inboxview.Model
 	thread        threadview.Model
+	issue         issueview.Model
+
+	triaging bool
+	triage   triageview.Model
 
 	refreshing  bool
 	lastRefresh time.Time
@@ -106,6 +114,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case msgs.Back:
 		m.view = viewInbox
 		return m, nil
+	case msgs.OpenTriage:
+		m.triaging = true
+		m.triage = triageview.New(msg.IDs, triageview.Deps{Forge: m.deps.Forge, Store: m.deps.Store, Config: m.deps.Config}, m.panelWidth(), m.height-1)
+		return m, m.triage.Init()
+	case msgs.TriageDone:
+		m.triaging = false
+		cmds := []tea.Cmd{emit(msgs.Refresh{})}
+		if m.view == viewThread {
+			cmds = append(cmds, m.thread.Init())
+		}
+		return m, tea.Batch(cmds...)
+	case msgs.NewIssue:
+		m.view = viewIssue
+		m.issue = issueview.New(m.deps.repos(), issueview.Deps{Forge: m.deps.Forge, Config: m.deps.Config}, m.width, m.height-1)
+		return m, nil
+	case msgs.IssueCreated:
+		m.view = viewInbox
+		m.status = "created " + msg.URL
+		return m, emit(msgs.Refresh{})
 	case refreshDoneMsg:
 		m.refreshing = false
 		m.lastRefresh = m.deps.Now()
@@ -122,7 +149,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.refreshing = true
-		m.status = "refreshing"
 		return m, m.refresh()
 	case msgs.Status:
 		m.status = msg.Text
@@ -131,18 +157,63 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = termsafe.Line(msg.URL)
 		return m, nil
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" || (m.view == viewInbox && msg.String() == "q" && !m.inbox.Filtering()) {
+		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+		if m.triaging {
+			var cmd tea.Cmd
+			m.triage, cmd = m.triage.Update(msg)
+			return m, cmd
+		}
+		if m.view == viewInbox && msg.String() == "q" && !m.inbox.Filtering() {
+			return m, tea.Quit
+		}
+		return m.updateView(msg)
 	}
+	// Everything else may be a reply to the panel or to the view underneath.
+	var cmds []tea.Cmd
+	if m.triaging {
+		var cmd tea.Cmd
+		m.triage, cmd = m.triage.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	next, cmd := m.updateView(msg)
+	return next, tea.Batch(append(cmds, cmd)...)
+}
+
+func (m Model) updateView(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch m.view {
 	case viewThread:
 		m.thread, cmd = m.thread.Update(msg)
+	case viewIssue:
+		m.issue, cmd = m.issue.Update(msg)
 	default:
 		m.inbox, cmd = m.inbox.Update(msg)
 	}
 	return m, cmd
+}
+
+func emit(msg tea.Msg) tea.Cmd { return func() tea.Msg { return msg } }
+
+func (m Model) panelWidth() int { return max(min(44, m.width/2), 30) }
+
+func (d Deps) repos() []forge.RepoID {
+	var out []forge.RepoID
+	add := func(r forge.RepoID) {
+		if !slices.Contains(out, r) {
+			out = append(out, r)
+		}
+	}
+	for _, lr := range d.Refresher.Repos {
+		if lr.Repo != nil {
+			add(*lr.Repo)
+		}
+	}
+	for _, r := range d.Refresher.Extra {
+		add(r)
+	}
+	return out
 }
 
 func (m Model) statusBar() string {
@@ -164,6 +235,25 @@ func (m Model) statusBar() string {
 	return style.StatusBar.Render(ansi.Truncate(strings.Join(parts, " · "), m.width, "…"))
 }
 
+// overlay draws panel over the right edge of base.
+func overlay(base, panel string, width int) string {
+	b := strings.Split(base, "\n")
+	p := strings.Split(panel, "\n")
+	pw := 0
+	for _, l := range p {
+		pw = max(pw, ansi.StringWidth(l))
+	}
+	left := max(width-pw, 0)
+	for len(b) < len(p) {
+		b = append(b, "")
+	}
+	for i, l := range p {
+		row := ansi.Truncate(b[i], left, "")
+		b[i] = row + strings.Repeat(" ", max(left-ansi.StringWidth(row), 0)) + l
+	}
+	return strings.Join(b, "\n")
+}
+
 func ago(now, t time.Time) string {
 	d := now.Sub(t)
 	if d < time.Hour {
@@ -174,8 +264,14 @@ func ago(now, t time.Time) string {
 
 func (m Model) View() string {
 	body := m.inbox.View()
-	if m.view == viewThread {
+	switch m.view {
+	case viewThread:
 		body = m.thread.View()
+	case viewIssue:
+		body = m.issue.View()
+	}
+	if m.triaging {
+		body = overlay(body, m.triage.View(), m.width)
 	}
 	lines := strings.Count(body, "\n") + 1
 	if pad := m.height - 1 - lines; pad > 0 {

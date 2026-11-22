@@ -147,6 +147,47 @@ func TestAppQInThreadDoesNotQuit(t *testing.T) {
 	}
 }
 
+func TestAppTriageOverlayAndDone(t *testing.T) {
+	d, f := deps(t)
+	id := forge.ItemID{Repo: repoA, Number: 7}
+	f.Threads[id] = forge.Thread{Item: forge.Item{ID: id}}
+	f.Meta[repoA] = forge.RepoMeta{Labels: []forge.Label{{Name: "bug"}}}
+	m := drive(sized(newApp(context.Background(), d)), msgs.OpenTriage{IDs: []forge.ItemID{id}})
+	if !strings.Contains(m.View(), "Triage 1 item") {
+		t.Fatalf("panel not shown:\n%s", m.View())
+	}
+	for _, k := range []string{"enter", "space", "esc", "a"} {
+		m = drive(m, tuitest.Key(k))
+	}
+	if !strings.Contains(m.View(), "ok o/a#7") {
+		t.Fatalf("not applied:\n%s", m.View())
+	}
+	m = drive(m, tuitest.Key("esc"))
+	if strings.Contains(m.View(), "Triage 1 item") {
+		t.Fatalf("panel still open:\n%s", m.View())
+	}
+	th, _ := f.Thread(t.Context(), id)
+	if len(th.Item.Labels) != 1 {
+		t.Fatalf("labels = %+v", th.Item.Labels)
+	}
+}
+
+func TestAppNewIssueCreated(t *testing.T) {
+	d, _ := deps(t)
+	m := drive(sized(newApp(context.Background(), d)), msgs.NewIssue{})
+	if !strings.Contains(m.View(), "New issue") || !strings.Contains(m.View(), "o/a") {
+		t.Fatalf("form not shown:\n%s", m.View())
+	}
+	for _, k := range tuitest.Type("Hello") {
+		m = drive(m, k)
+	}
+	m = drive(m, tuitest.Key("ctrl+s"))
+	view := m.View()
+	if strings.Contains(view, "New issue") || !strings.Contains(view, "created https://github.com/o/a/issues/") {
+		t.Fatalf("view:\n%s", view)
+	}
+}
+
 func TestAppOpenURLShowsURL(t *testing.T) {
 	d, _ := deps(t)
 	m := sized(newApp(context.Background(), d))
