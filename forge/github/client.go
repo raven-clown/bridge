@@ -61,8 +61,6 @@ func New(host, token string, hc *http.Client, opts ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) Host() string { return c.host }
-
 // RateLimit returns the last seen remaining budget (-1 before any call).
 func (c *Client) RateLimit() (int, time.Time) {
 	c.mu.Lock()

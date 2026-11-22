@@ -156,6 +156,27 @@ func TestScanWindowsStylePath(t *testing.T) {
 	}
 }
 
+func TestScanListsWorktrees(t *testing.T) {
+	root := t.TempDir()
+	main := filepath.Join(root, "main")
+	initRepo(t, main, "https://github.com/o/m.git")
+	wt := filepath.Join(t.TempDir(), "feature")
+	meta := filepath.Join(main, ".git", "worktrees", "feature")
+	if err := os.MkdirAll(meta, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta, "gitdir"), []byte(filepath.ToSlash(filepath.Join(wt, ".git"))+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repos, err := Scan(context.Background(), []string{root}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 1 || len(repos[0].Worktrees) != 1 || repos[0].Worktrees[0] != wt {
+		t.Fatalf("worktrees = %v, want [%s]", repos[0].Worktrees, wt)
+	}
+}
+
 func TestStatusDirtyAheadBehind(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "r")
 	r := initRepo(t, dir, "https://github.com/o/r.git")

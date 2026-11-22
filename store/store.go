@@ -35,8 +35,6 @@ func Open(dir string) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) Dir() string { return s.dir }
-
 var unsafe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
 func safe(parts ...string) string {
