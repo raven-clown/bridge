@@ -181,18 +181,35 @@ func TestNodeMappingIssueBot(t *testing.T) {
 	}
 }
 
-func TestBotCommentAuthorGetsBotSuffix(t *testing.T) {
-	f := newFakeGH(t)
-	f.GraphQL = func(gqlReq) (int, http.Header, any) {
-		n := issueNode(1)
-		n["comments"] = map[string]any{"nodes": []any{map[string]any{
-			"id": "IC_1", "author": map[string]any{"__typename": "Bot", "login": "codecov"}, "createdAt": "2026-11-21T00:00:00Z", "bodyText": "report",
-		}}}
-		return ok(searchPage([]any{n}, 1, false, ""))
+func comment(id, typename, login, at string) map[string]any {
+	return map[string]any{"id": id, "author": map[string]any{"__typename": typename, "login": login}, "createdAt": at, "bodyText": "text from " + login}
+}
+
+func nodeWithComments(cs ...any) map[string]any {
+	n := issueNode(1)
+	n["comments"] = map[string]any{"nodes": cs}
+	return n
+}
+
+func TestLastCommentSkipsBots(t *testing.T) {
+	tests := []struct {
+		name     string
+		comments []any
+		want     string
+	}{
+		{"human then bot", []any{comment("1", "User", "carol", "2026-11-21T01:00:00Z"), comment("2", "Bot", "codecov", "2026-11-21T02:00:00Z")}, "carol"},
+		{"only bots", []any{comment("1", "Bot", "codecov", "2026-11-21T01:00:00Z")}, ""},
+		{"no comments", nil, ""},
 	}
-	got, err := f.client().ListMyPRs(context.Background(), nil)
-	if err != nil || got.Items[0].LastCommentBy != "codecov[bot]" {
-		t.Fatalf("got %+v err %v", got.Items, err)
+	for _, tt := range tests {
+		f := newFakeGH(t)
+		f.GraphQL = func(gqlReq) (int, http.Header, any) {
+			return ok(searchPage([]any{nodeWithComments(tt.comments...)}, 1, false, ""))
+		}
+		got, err := f.client().ListMyPRs(context.Background(), nil)
+		if err != nil || got.Items[0].LastCommentBy != tt.want {
+			t.Errorf("%s: last comment by %q, want %q (err %v)", tt.name, got.Items[0].LastCommentBy, tt.want, err)
+		}
 	}
 }
 
@@ -274,7 +291,8 @@ func TestWritableBatches(t *testing.T) {
 	}
 }
 
-func TestListMentionsUsesLatestOtherComment(t *testing.T) {
+func mentionsServer(t *testing.T, nodes ...any) *fakeGH {
+	t.Helper()
 	f := newFakeGH(t)
 	f.GraphQL = func(r gqlReq) (int, http.Header, any) {
 		if strings.Contains(r.Query, "viewer") && !strings.Contains(r.Query, "search(") {
@@ -283,15 +301,38 @@ func TestListMentionsUsesLatestOtherComment(t *testing.T) {
 		if q := r.Variables["q"].(string); !strings.Contains(q, "mentions:@me") {
 			t.Errorf("q = %q", q)
 		}
-		return ok(searchPage([]any{fixture(t, "issue_node.json")}, 1, false, ""))
+		return ok(searchPage(nodes, len(nodes), false, ""))
 	}
+	return f
+}
+
+func TestListMentionsAnsweredInBrowserIsSkipped(t *testing.T) {
+	f := mentionsServer(t, fixture(t, "issue_node.json"))
 	got, err := f.client().ListMentions(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || len(got.Items) != 0 {
+		t.Fatalf("mentions %+v err %v", got.Items, err)
 	}
-	m := got.Items[0]
-	if m.Comment != "IC_1" || m.Author.Login != "carol" || m.Item.Number != 5 || m.Title != "Crash on start" || m.Excerpt != "@me can you look" {
+}
+
+func TestListMentionsUsesLatestHumanComment(t *testing.T) {
+	n := nodeWithComments(
+		comment("IC_1", "User", "me", "2026-11-21T01:00:00Z"),
+		comment("IC_2", "User", "carol", "2026-11-21T02:00:00Z"),
+		comment("IC_3", "Bot", "stale", "2026-11-21T03:00:00Z"),
+	)
+	got, err := mentionsServer(t, n).client().ListMentions(context.Background(), nil)
+	if err != nil || len(got.Items) != 1 {
+		t.Fatalf("mentions %+v err %v", got.Items, err)
+	}
+	if m := got.Items[0]; m.Comment != "IC_2" || m.Author.Login != "carol" || m.Excerpt != "text from carol" {
 		t.Fatalf("mention: %+v", m)
+	}
+}
+
+func TestListMentionsInBodyWithoutComments(t *testing.T) {
+	got, err := mentionsServer(t, nodeWithComments()).client().ListMentions(context.Background(), nil)
+	if err != nil || len(got.Items) != 1 || got.Items[0].Comment != "" || got.Items[0].Author.Login != "x" {
+		t.Fatalf("mentions %+v err %v", got.Items, err)
 	}
 }
 

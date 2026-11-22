@@ -75,6 +75,19 @@ type gqlComment struct {
 
 func (c gqlComment) login() string { return c.Author.login() }
 
+func (c gqlComment) bot() bool { return c.Author != nil && c.Author.Typename == "Bot" }
+
+// lastHuman is the newest of the fetched comments that is not a bot's, so a
+// CI or stale bot posting last does not hide a question from a person.
+func (n gqlNode) lastHuman() (gqlComment, bool) {
+	for _, c := range slices.Backward(n.Comments.Nodes) {
+		if !c.bot() {
+			return c, true
+		}
+	}
+	return gqlComment{}, false
+}
+
 type gqlNode struct {
 	Typename  string    `json:"__typename"`
 	Number    int       `json:"number"`
@@ -172,8 +185,7 @@ func (c *Client) toItem(n gqlNode) forge.Item {
 	for _, a := range n.Assignees.Nodes {
 		it.Assignees = append(it.Assignees, forge.User{Login: a.Login})
 	}
-	if cs := n.Comments.Nodes; len(cs) > 0 {
-		last := cs[len(cs)-1]
+	if last, ok := n.lastHuman(); ok {
 		it.LastCommentBy, it.LastCommentAt = last.login(), last.CreatedAt
 	}
 	if it.IsPR {
@@ -363,11 +375,12 @@ func (c *Client) ListMentions(ctx context.Context, since *time.Time) (forge.List
 	for _, n := range nodes {
 		it := c.toItem(n)
 		ref := forge.CommentRef{Item: it.ID, Title: it.Title, IsPR: it.IsPR, Author: it.Author, At: it.UpdatedAt, URL: it.URL}
-		for _, cm := range slices.Backward(n.Comments.Nodes) {
-			if cm.login() != me.Login {
-				ref.Comment, ref.Author, ref.At, ref.Excerpt = forge.CommentID(cm.ID), forge.User{Login: cm.login()}, cm.CreatedAt, excerpt(cm.BodyText)
-				break
+		if cm, ok := n.lastHuman(); ok {
+			// Your own comment last means you answered, wherever you did it.
+			if strings.EqualFold(cm.login(), me.Login) {
+				continue
 			}
+			ref.Comment, ref.Author, ref.At, ref.Excerpt = forge.CommentID(cm.ID), forge.User{Login: cm.login()}, cm.CreatedAt, excerpt(cm.BodyText)
 		}
 		out.Items = append(out.Items, ref)
 	}
