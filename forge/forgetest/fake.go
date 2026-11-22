@@ -32,8 +32,33 @@ type Fake struct {
 
 	// Block, when set for a method name, is waited on before the method returns.
 	Block map[string]chan struct{}
+	// ReadOnly repositories are left out by Writable; all others are writable.
+	ReadOnly map[forge.RepoID]bool
 
-	seq int
+	seq          int
+	lastIncoming []forge.RepoID
+}
+
+// LastIncoming is the repository list the last ListIncoming call received.
+func (f *Fake) LastIncoming() []forge.RepoID {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.lastIncoming)
+}
+
+func (f *Fake) Writable(_ context.Context, repos []forge.RepoID) ([]forge.RepoID, error) {
+	if err := f.enter("Writable"); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []forge.RepoID
+	for _, r := range repos {
+		if !f.ReadOnly[r] {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 func New() *Fake {
@@ -117,6 +142,7 @@ func (f *Fake) ListIncoming(_ context.Context, repos []forge.RepoID, _ *time.Tim
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastIncoming = slices.Clone(repos)
 	var out []forge.Item
 	for _, it := range f.Incoming {
 		if slices.Contains(repos, it.ID.Repo) {

@@ -105,6 +105,16 @@ func TestBuildUnansweredUsesAnsweredAt(t *testing.T) {
 	}
 }
 
+func TestBuildIgnoresBotComments(t *testing.T) {
+	in := input()
+	in.ReviewRequests = []forge.Item{{ID: id(1), IsPR: true, LastCommentBy: "codecov[bot]", LastCommentAt: t0}}
+	in.Mentions = []forge.CommentRef{{Item: id(2), Comment: "C2", Author: forge.User{Login: "github-actions[bot]", Bot: true}, At: t0}}
+	got := Build(in)
+	if len(got) != 1 || got[0].ID != id(1) || got[0].Unanswered != 0 || got[0].Urgency != UrgencyReviewRequested {
+		t.Fatalf("got %+v", got)
+	}
+}
+
 func TestBuildDropsMuted(t *testing.T) {
 	in := input()
 	in.Incoming = []forge.Item{{ID: id(1), Author: forge.User{Login: "dependabot[bot]"}}, {ID: id(2), Author: forge.User{Login: "x"}}}

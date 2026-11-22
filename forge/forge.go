@@ -25,6 +25,9 @@ func (e *RateLimitedError) Error() string {
 // features do.
 type Forge interface {
 	WhoAmI(ctx context.Context) (User, error)
+	// Writable keeps the repositories the caller can push to, so clones of
+	// other people's projects stay out of the inbox.
+	Writable(ctx context.Context, repos []RepoID) ([]RepoID, error)
 
 	ListMyPRs(ctx context.Context, since *time.Time) (ListResult[Item], error)
 	ListIncoming(ctx context.Context, repos []RepoID, since *time.Time) (ListResult[Item], error)

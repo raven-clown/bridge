@@ -3,6 +3,7 @@ package inbox
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/raven-clown/bridge/forge"
@@ -52,6 +53,9 @@ func fromForge(kind forge.InboxKind, f forge.Item) Item {
 
 func after(t time.Time, mark *time.Time) bool { return mark == nil || t.After(*mark) }
 
+// A bot's comment never waits for an answer.
+func isBot(login string) bool { return strings.HasSuffix(login, "[bot]") }
+
 func Build(in Input) []Item {
 	var order []forge.ItemID
 	byID := map[forge.ItemID]*Item{}
@@ -82,6 +86,9 @@ func Build(in Input) []Item {
 
 	mentions := map[forge.ItemID]map[forge.CommentID]time.Time{}
 	for _, m := range in.Mentions {
+		if m.Author.Bot || isBot(m.Author.Login) {
+			continue
+		}
 		if _, ok := byID[m.Item]; !ok {
 			add(forge.Mention, forge.Item{ID: m.Item, IsPR: m.IsPR, Title: m.Title, Author: m.Author, UpdatedAt: m.At, URL: m.URL})
 		}
@@ -101,7 +108,7 @@ func Build(in Input) []Item {
 				it.Unanswered++
 			}
 		}
-		if f := last[key]; it.Unanswered == 0 && f.LastCommentBy != "" && f.LastCommentBy != in.Me && after(f.LastCommentAt, answeredAt) {
+		if f := last[key]; it.Unanswered == 0 && f.LastCommentBy != "" && f.LastCommentBy != in.Me && !isBot(f.LastCommentBy) && after(f.LastCommentAt, answeredAt) {
 			it.Unanswered = 1
 		}
 		if it.Kind == forge.Mention && it.Unanswered == 0 {

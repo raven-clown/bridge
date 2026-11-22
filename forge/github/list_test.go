@@ -181,6 +181,99 @@ func TestNodeMappingIssueBot(t *testing.T) {
 	}
 }
 
+func TestBotCommentAuthorGetsBotSuffix(t *testing.T) {
+	f := newFakeGH(t)
+	f.GraphQL = func(gqlReq) (int, http.Header, any) {
+		n := issueNode(1)
+		n["comments"] = map[string]any{"nodes": []any{map[string]any{
+			"id": "IC_1", "author": map[string]any{"__typename": "Bot", "login": "codecov"}, "createdAt": "2026-11-21T00:00:00Z", "bodyText": "report",
+		}}}
+		return ok(searchPage([]any{n}, 1, false, ""))
+	}
+	got, err := f.client().ListMyPRs(context.Background(), nil)
+	if err != nil || got.Items[0].LastCommentBy != "codecov[bot]" {
+		t.Fatalf("got %+v err %v", got.Items, err)
+	}
+}
+
+func TestSearchRetriesSmallerPageOnGatewayError(t *testing.T) {
+	f := newFakeGH(t)
+	var sizes []any
+	f.GraphQL = func(r gqlReq) (int, http.Header, any) {
+		sizes = append(sizes, r.Variables["first"])
+		if r.Variables["first"] == float64(100) {
+			return 502, nil, map[string]any{"message": "Server Error"}
+		}
+		return ok(searchPage([]any{issueNode(1)}, 1, false, ""))
+	}
+	got, err := f.client().ListIncoming(context.Background(), []forge.RepoID{repoA}, nil)
+	if err != nil || len(got.Items) != 1 {
+		t.Fatalf("items %+v err %v", got.Items, err)
+	}
+	if fmt.Sprint(sizes) != "[100 50]" {
+		t.Fatalf("page sizes = %v", sizes)
+	}
+}
+
+func TestSearchGivesUpAfterSmallestPage(t *testing.T) {
+	f := newFakeGH(t)
+	calls := 0
+	f.GraphQL = func(r gqlReq) (int, http.Header, any) {
+		calls++
+		return 504, nil, map[string]any{"message": "timeout"}
+	}
+	if _, err := f.client().ListMyPRs(context.Background(), nil); err == nil || calls != 3 {
+		t.Fatalf("err %v calls %d", err, calls)
+	}
+}
+
+func TestWritable(t *testing.T) {
+	f := newFakeGH(t)
+	f.GraphQL = func(r gqlReq) (int, http.Header, any) {
+		if r.Variables["o0"] != "o" || r.Variables["n1"] != "b" || !strings.Contains(r.Query, "r2: repository(owner: $o2, name: $n2)") {
+			t.Errorf("request = %+v", r)
+		}
+		return 200, nil, map[string]any{
+			"data": map[string]any{
+				"r0": map[string]any{"viewerPermission": "ADMIN"},
+				"r1": map[string]any{"viewerPermission": "READ"},
+				"r2": nil,
+				"r3": map[string]any{"viewerPermission": "WRITE"},
+			},
+			"errors": []any{map[string]any{"type": "NOT_FOUND", "path": []any{"r2"}, "message": "Could not resolve"}},
+		}
+	}
+	repos := []forge.RepoID{repoA, {Host: "github.com", Owner: "o", Name: "b"}, {Host: "github.com", Owner: "o", Name: "gone"}, {Host: "github.com", Owner: "o", Name: "d"}}
+	got, err := f.client().Writable(context.Background(), repos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != repoA || got[1].Name != "d" {
+		t.Fatalf("writable = %v", got)
+	}
+}
+
+func TestWritableBatches(t *testing.T) {
+	f := newFakeGH(t)
+	f.GraphQL = func(r gqlReq) (int, http.Header, any) {
+		data := map[string]any{}
+		for k := range r.Variables {
+			if strings.HasPrefix(k, "o") {
+				data["r"+k[1:]] = map[string]any{"viewerPermission": "MAINTAIN"}
+			}
+		}
+		return ok(data)
+	}
+	var repos []forge.RepoID
+	for i := range 120 {
+		repos = append(repos, forge.RepoID{Host: "github.com", Owner: "o", Name: fmt.Sprintf("r%d", i)})
+	}
+	got, err := f.client().Writable(context.Background(), repos)
+	if err != nil || len(got) != 120 || len(f.requests()) != 3 {
+		t.Fatalf("got %d err %v requests %d", len(got), err, len(f.requests()))
+	}
+}
+
 func TestListMentionsUsesLatestOtherComment(t *testing.T) {
 	f := newFakeGH(t)
 	f.GraphQL = func(r gqlReq) (int, http.Header, any) {

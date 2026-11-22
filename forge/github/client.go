@@ -154,9 +154,13 @@ func (c *Client) statusError(resp *http.Response, data []byte) error {
 		if strings.Contains(strings.ToLower(msg), "lock") {
 			return errors.Join(forge.ErrForbidden, err)
 		}
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return errors.Join(errGateway, err)
 	}
 	return err
 }
+
+var errGateway = errors.New("github did not answer in time")
 
 func (c *Client) rest(ctx context.Context, method, path string, body, out any) error {
 	data, err := c.do(ctx, method, c.restBase+path, body)

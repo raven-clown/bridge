@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 const (
 	pageSize     = 100
+	minPageSize  = 25
 	searchCap    = 1000
 	reposPerPage = 20
 	branchWindow = 14 * 24 * time.Hour
@@ -23,7 +25,7 @@ const commonFields = `
 	labels(first: 20) { nodes { name color } }
 	milestone { id number title dueOn state }
 	assignees(first: 10) { nodes { login } }
-	comments(last: 5) { nodes { id author { login } createdAt bodyText } }`
+	comments(last: 5) { nodes { id author { __typename login } createdAt bodyText } }`
 
 const prFields = commonFields + `
 	headRefName isCrossRepository reviewDecision mergeable mergeStateStatus
@@ -40,29 +42,38 @@ const nodeFields = `__typename
 	... on Issue {` + commonFields + `}
 	... on PullRequest {` + prFields + `}`
 
-const searchQuery = `query($q: String!, $after: String) {
-	search(query: $q, type: ISSUE, first: 100, after: $after) {
+const searchQuery = `query($q: String!, $first: Int!, $after: String) {
+	search(query: $q, type: ISSUE, first: $first, after: $after) {
 		issueCount
 		pageInfo { hasNextPage endCursor }
 		nodes { ` + nodeFields + ` }
 	}
 }`
 
-type gqlComment struct {
-	ID     string `json:"id"`
-	Author *struct {
-		Login string `json:"login"`
-	} `json:"author"`
-	CreatedAt time.Time `json:"createdAt"`
-	BodyText  string    `json:"bodyText"`
+type gqlAuthor struct {
+	Typename string `json:"__typename"`
+	Login    string `json:"login"`
 }
 
-func (c gqlComment) login() string {
-	if c.Author == nil {
+// login matches REST logins: bots end in [bot], deleted users are ghost.
+func (a *gqlAuthor) login() string {
+	switch {
+	case a == nil:
 		return "ghost"
+	case a.Typename == "Bot":
+		return a.Login + "[bot]"
 	}
-	return c.Author.Login
+	return a.Login
 }
+
+type gqlComment struct {
+	ID        string     `json:"id"`
+	Author    *gqlAuthor `json:"author"`
+	CreatedAt time.Time  `json:"createdAt"`
+	BodyText  string     `json:"bodyText"`
+}
+
+func (c gqlComment) login() string { return c.Author.login() }
 
 type gqlNode struct {
 	Typename  string    `json:"__typename"`
@@ -249,6 +260,7 @@ func (c *Client) search(ctx context.Context, q string) ([]gqlNode, bool, error) 
 	var (
 		nodes []gqlNode
 		after any
+		first = pageSize
 	)
 	for {
 		var out struct {
@@ -261,7 +273,14 @@ func (c *Client) search(ctx context.Context, q string) ([]gqlNode, bool, error) 
 				Nodes []gqlNode `json:"nodes"`
 			} `json:"search"`
 		}
-		if err := c.graphql(ctx, searchQuery, map[string]any{"q": q, "after": after}, &out); err != nil {
+		err := c.graphql(ctx, searchQuery, map[string]any{"q": q, "first": first, "after": after}, &out)
+		// GitHub answers a search too heavy to finish in time with a
+		// gateway error, so ask for the same page in smaller pieces.
+		if errors.Is(err, errGateway) && first > minPageSize {
+			first /= 2
+			continue
+		}
+		if err != nil {
 			return nil, false, err
 		}
 		for _, n := range out.Search.Nodes {

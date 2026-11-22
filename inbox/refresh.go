@@ -70,24 +70,35 @@ type Refresher struct {
 
 const cacheName = "inbox"
 
-func (r *Refresher) watched() ([]forge.RepoID, map[forge.RepoID]string) {
-	var repos []forge.RepoID
-	local := map[forge.RepoID]string{}
+// watched returns the repositories to ask for incoming items (local clones
+// you can write to, plus the extra ones from config), every local path, and
+// the writable local repositories whose branches to list. When the
+// permission check fails it falls back to repositories you own.
+func (r *Refresher) watched(ctx context.Context) (incoming []forge.RepoID, local map[forge.RepoID]string, mine []forge.RepoID, err error) {
+	local = map[forge.RepoID]string{}
+	var clones []forge.RepoID
 	for _, lr := range r.Repos {
 		if lr.Repo == nil {
 			continue
 		}
 		if _, ok := local[*lr.Repo]; !ok {
 			local[*lr.Repo] = lr.Path
-			repos = append(repos, *lr.Repo)
+			clones = append(clones, *lr.Repo)
 		}
 	}
+	if len(clones) > 0 {
+		mine, err = r.Forge.Writable(ctx, clones)
+		if err != nil {
+			mine = slices.DeleteFunc(slices.Clone(clones), func(id forge.RepoID) bool { return !strings.EqualFold(id.Owner, r.Me) })
+		}
+	}
+	incoming = slices.Clone(mine)
 	for _, e := range r.Extra {
-		if !slices.Contains(repos, e) {
-			repos = append(repos, e)
+		if !slices.Contains(incoming, e) {
+			incoming = append(incoming, e)
 		}
 	}
-	return repos, local
+	return incoming, local, mine, err
 }
 
 func (r *Refresher) Refresh(ctx context.Context) Result {
@@ -95,13 +106,16 @@ func (r *Refresher) Refresh(ctx context.Context) Result {
 	if r.Now != nil {
 		now = r.Now
 	}
-	repos, local := r.watched()
+	repos, local, mine, permErr := r.watched(ctx)
 
 	var (
 		mu  sync.Mutex
 		res Result
 		in  = Input{Me: r.Me, Branches: map[forge.RepoID][]forge.Branch{}, Local: local}
 	)
+	if permErr != nil {
+		res.Problems = append(res.Problems, Problem{Source: "permissions", Err: permErr})
+	}
 	fail := func(source string, repo *forge.RepoID, err error) {
 		p := Problem{Source: source, Repo: repo, Err: err}
 		if rl, ok := errors.AsType[*forge.RateLimitedError](err); ok {
@@ -171,7 +185,7 @@ func (r *Refresher) Refresh(ctx context.Context) Result {
 		mu.Unlock()
 		return nil
 	})
-	for repo := range local {
+	for _, repo := range mine {
 		g.Go(func() error {
 			b, err := r.Forge.ListBranches(ctx, repo)
 			if err != nil {

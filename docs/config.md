@@ -14,11 +14,11 @@ Any key can be set from the environment as `BRIDGE_` plus the key in upper case,
 
 | Key | Default | Meaning |
 |---|---|---|
-| `roots` | none | Folders to search for git repositories |
+| `roots` | none | Folders to search for git repositories. A clone counts as yours only if you can push to it, so clones of other people's projects stay out of the inbox |
 | `depth` | `2` | How many folder levels below each root to search |
 | `refresh_seconds` | `90` | How often the UI refreshes, at least 10 |
 | `auth.source` | `keyring` | `keyring` (env, then keyring), `env` (env only) or `device_flow` |
-| `repos` | none | Extra repositories to watch, as `owner/name` or `host/owner/name` |
+| `repos` | none | Extra repositories to watch, as `owner/name` or `host/owner/name`; these are watched whatever your access |
 | `mute.repos` | none | Glob patterns on `owner/name` to leave out of the inbox |
 | `mute.authors` | none | Logins to leave out, such as `dependabot[bot]` |
 | `mute.kinds` | none | Kinds to leave out: `own-pr`, `incoming-pr`, `incoming-issue`, `review-request`, `mention`, `pushed-branch` |

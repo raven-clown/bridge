@@ -8,7 +8,7 @@ import (
 	"github.com/raven-clown/bridge/forge"
 )
 
-const fullComments = `allComments: comments(first: 100) { nodes { id author { login } createdAt body } }`
+const fullComments = `allComments: comments(first: 100) { nodes { id author { __typename login } createdAt body } }`
 
 const commonEvents = `__typename
 	... on LabeledEvent { createdAt actor { login } label { name } }
@@ -32,7 +32,7 @@ const threadQuery = `query($owner: String!, $name: String!, $number: Int!) {
 				}
 			}
 			... on PullRequest {` + prFields + ` body ` + fullComments + `
-				reviewThreads(first: 100) { nodes { id path line isResolved comments(first: 50) { nodes { id author { login } createdAt body } } } }
+				reviewThreads(first: 100) { nodes { id path line isResolved comments(first: 50) { nodes { id author { __typename login } createdAt body } } } }
 				timelineItems(first: 100, itemTypes: [LABELED_EVENT, UNLABELED_EVENT, MILESTONED_EVENT, ASSIGNED_EVENT, CLOSED_EVENT, REOPENED_EVENT, MERGED_EVENT, REVIEW_REQUESTED_EVENT]) {
 					nodes { ` + prEvents + ` }
 				}
@@ -42,20 +42,15 @@ const threadQuery = `query($owner: String!, $name: String!, $number: Int!) {
 }`
 
 type fullComment struct {
-	ID     string `json:"id"`
-	Author *struct {
-		Login string `json:"login"`
-	} `json:"author"`
-	CreatedAt time.Time `json:"createdAt"`
-	Body      string    `json:"body"`
+	ID        string     `json:"id"`
+	Author    *gqlAuthor `json:"author"`
+	CreatedAt time.Time  `json:"createdAt"`
+	Body      string     `json:"body"`
 }
 
 func (c fullComment) toForge() forge.Comment {
-	login := "ghost"
-	if c.Author != nil {
-		login = c.Author.Login
-	}
-	return forge.Comment{ID: forge.CommentID(c.ID), Author: forge.User{Login: login}, At: c.CreatedAt, Body: c.Body}
+	bot := c.Author != nil && c.Author.Typename == "Bot"
+	return forge.Comment{ID: forge.CommentID(c.ID), Author: forge.User{Login: c.Author.login(), Bot: bot}, At: c.CreatedAt, Body: c.Body}
 }
 
 type threadNode struct {

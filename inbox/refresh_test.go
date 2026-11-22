@@ -130,6 +130,42 @@ func TestRefreshSkipsUnmappedRepos(t *testing.T) {
 	}
 }
 
+func TestRefreshIncomingOnlyWritableRepos(t *testing.T) {
+	f := fakeWithAll()
+	upstream := forge.RepoID{Host: "github.com", Owner: "someone", Name: "big"}
+	f.ReadOnly = map[forge.RepoID]bool{upstream: true}
+	f.Incoming = append(f.Incoming, forge.Item{ID: forge.ItemID{Repo: upstream, Number: 9}, Title: "not mine"})
+	r := refresher(t, f)
+	a := repoA
+	r.Repos = []discover.LocalRepo{{Path: "/src/a", Repo: &a}, {Path: "/src/big", Repo: &upstream}}
+	r.Extra = []forge.RepoID{repoB}
+	res := r.Refresh(context.Background())
+	if got := f.LastIncoming(); !slices.Equal(got, []forge.RepoID{repoA, repoB}) {
+		t.Fatalf("incoming asked for %v", got)
+	}
+	for _, it := range res.Items {
+		if it.Repo == upstream && it.Kind == forge.IncomingIssue {
+			t.Fatalf("read-only repo in the inbox: %+v", it)
+		}
+	}
+	if !slices.Contains(f.CallLog(), "ListBranches") {
+		t.Fatal("branches of the writable local repo were not listed")
+	}
+}
+
+func TestRefreshWritableFailureIsProblem(t *testing.T) {
+	f := fakeWithAll()
+	f.Err["Writable"] = errors.New("nope")
+	res := refresher(t, f).Refresh(context.Background())
+	found := false
+	for _, p := range res.Problems {
+		found = found || p.Source == "permissions"
+	}
+	if !found {
+		t.Fatalf("problems = %+v", res.Problems)
+	}
+}
+
 func TestRefreshSavesCache(t *testing.T) {
 	f := fakeWithAll()
 	f.Err["ListMentions"] = errors.New("boom")
