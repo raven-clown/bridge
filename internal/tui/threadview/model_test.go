@@ -192,13 +192,18 @@ func TestThreadEscapesHostileText(t *testing.T) {
 	_, f, s := setup(t)
 	th := f.Threads[id]
 	th.Item.Title = "t\x1b]0;pwned\x07"
-	th.Comments[0].Body = "c\x1b[2J"
+	th.Body = "hello &#27;]0;body&#7; and &#x1b;[2J world"
+	th.Comments[0].Body = "c\x1b[2J and &#x1B;]52;c;ZXZpbA==&#x07;"
+	th.ReviewThreads[0].Comments[0].Body = "r &#27;]8;;https://evil&#27;\\link"
 	f.Threads[id] = th
 	m := New(id, Deps{Forge: f, Store: s, Now: func() time.Time { return now }}, 80, 40)
 	for _, msg := range tuitest.Run(m.Init()) {
 		m, _ = m.Update(msg)
 	}
-	if strings.Contains(m.View(), "pwned\x07") || strings.Contains(m.View(), "\x1b[2J") {
-		t.Fatalf("raw control characters in view: %q", m.View())
+	view := m.View()
+	for _, bad := range []string{"\x07", "\x1b]", "\x1b[2J"} {
+		if strings.Contains(view, bad) {
+			t.Fatalf("raw %q in view: %q", bad, view)
+		}
 	}
 }

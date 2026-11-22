@@ -266,7 +266,7 @@ func (md markdown) render(body string) []string {
 	}
 	if md.r != nil {
 		if out, err := md.r.Render(body); err == nil {
-			return strings.Split(strings.Trim(out, "\n"), "\n")
+			return strings.Split(strings.Trim(termsafe.Styled(out), "\n"), "\n")
 		}
 	}
 	return strings.Split(body, "\n")

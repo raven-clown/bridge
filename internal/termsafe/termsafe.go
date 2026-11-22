@@ -38,6 +38,52 @@ func Text(s string) string {
 	return b.String()
 }
 
+// Styled is Text for output of a renderer such as glamour: it keeps SGR
+// sequences (ESC [ digits and semicolons m), which only set colors and
+// weight, and escapes every other control character. A Markdown renderer
+// decodes entities like &#27; after Text has run, so its output needs
+// this second pass.
+func Styled(s string) string {
+	var b strings.Builder
+	rs := []rune(s)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		if r == 0x1b {
+			if n := sgrLen(rs[i:]); n > 0 {
+				b.WriteString(string(rs[i : i+n]))
+				i += n - 1
+				continue
+			}
+		}
+		switch {
+		case r == '\n' || r == '\t':
+			b.WriteRune(r)
+		case unicode.IsControl(r) || bidi(r):
+			escape(&b, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// sgrLen returns the length of an SGR sequence at the start of rs, or 0.
+func sgrLen(rs []rune) int {
+	if len(rs) < 3 || rs[0] != 0x1b || rs[1] != '[' {
+		return 0
+	}
+	for i := 2; i < len(rs); i++ {
+		switch r := rs[i]; {
+		case r == 'm':
+			return i + 1
+		case (r >= '0' && r <= '9') || r == ';':
+		default:
+			return 0
+		}
+	}
+	return 0
+}
+
 // Line is Text for one-line fields such as titles, logins and branch
 // names: newlines and tabs become spaces.
 func Line(s string) string {
