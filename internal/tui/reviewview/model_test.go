@@ -357,6 +357,68 @@ func TestSubmitStaleOffersChoice(t *testing.T) {
 	}
 }
 
+func TestOrphanedCommentsShownAndDeletable(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	d := review.Draft{PR: pr, HeadSHA: "head1"}
+	d.Add(review.DraftComment{Path: "main.go", Line: 50, Side: forge.SideRight, Body: "moved away"})
+	d.Add(review.DraftComment{Path: "gone.go", Line: 1, Side: forge.SideRight, Body: "file removed"})
+	if err := review.SaveDraft(e.s, d); err != nil {
+		t.Fatal(err)
+	}
+	m := e.open(120, 40)
+	view := m.View()
+	if !strings.Contains(view, "line 50 is no longer in the diff") || !strings.Contains(view, "moved away") ||
+		!strings.Contains(view, "gone.go is no longer in this pull request") || !strings.Contains(view, "file removed") {
+		t.Fatalf("orphans not shown:\n%s", view)
+	}
+	m, _ = press(m, "D")
+	if got := draftOf(t, e).Comments; len(got) != 1 {
+		t.Fatalf("D on the header did not delete an orphan: %+v", got)
+	}
+	_, _ = press(m, "D")
+	if got := draftOf(t, e).Comments; len(got) != 0 {
+		t.Fatalf("second D: %+v", got)
+	}
+}
+
+func TestRebaseDraftClearsStale(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	if err := review.SaveDraft(e.s, review.Draft{PR: pr, HeadSHA: "older"}); err != nil {
+		t.Fatal(err)
+	}
+	m := e.open(120, 30)
+	if !strings.Contains(m.View(), "u moves the draft") {
+		t.Fatalf("banner does not offer u:\n%s", m.View())
+	}
+	m, _ = press(m, "u")
+	if strings.Contains(m.View(), "changed since this draft") || draftOf(t, e).HeadSHA != "head1" {
+		t.Fatalf("draft not moved:\n%s", m.View())
+	}
+}
+
+func TestRangeAcrossHunksRefused(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "j", "j", "j", "j", "v", "j", "j", "j", "j", "j", "c")
+	if m.Editing() || !strings.Contains(m.View(), "one hunk") {
+		t.Fatalf("view:\n%s", m.View())
+	}
+}
+
+func TestBlankCommentNotSaved(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "j", "j", "j", "j", "c")
+	m = typeText(m, "   ")
+	m, _ = press(m, "ctrl+s")
+	if got := draftOf(t, e).Comments; len(got) != 0 {
+		t.Fatalf("blank comment saved: %+v", got)
+	}
+	if !strings.Contains(m.View(), "empty comment") {
+		t.Fatalf("view:\n%s", m.View())
+	}
+}
+
 func TestReviewKeys(t *testing.T) {
 	m := newEnv(t, sampleDiff()).open(120, 30)
 	_, out := press(m, "q")

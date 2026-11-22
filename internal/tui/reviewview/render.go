@@ -22,7 +22,7 @@ func (m Model) topLines() []string {
 		lines = append(lines, style.Banner.Render("GitHub lists at most 3000 files; the rest are not shown"))
 	}
 	if m.stale {
-		lines = append(lines, style.Banner.Render("the pull request changed since this draft was started; comments may point at moved lines"))
+		lines = append(lines, style.Banner.Render("the pull request changed since this draft was started; check its comments, then u moves the draft to the new head"))
 	}
 	return lines
 }
@@ -65,13 +65,17 @@ func (m Model) footLines() []string {
 // commentLines are the draft comments shown under row ri.
 func (m Model) commentLines(ri int) []string {
 	var out []string
+	header := ri < len(m.rows) && m.rows[ri].line == HeaderRow
 	for _, i := range m.commentsAt(ri) {
 		c := m.draft.Comments[i]
 		where := ""
-		if c.StartLine > 0 {
+		switch {
+		case header:
+			where = ": " + termsafe.Line(m.orphanNote(c, m.rows[ri].file))
+		case c.StartLine > 0:
 			where = fmt.Sprintf(" on %d-%d", c.StartLine, c.Line)
 		}
-		out = append(out, "           "+style.Selected.Render("┃ you (draft)"+where))
+		out = append(out, "           "+style.Selected.Render("┃ you (draft)")+style.Banner.Render(where))
 		for _, l := range strings.Split(strings.TrimSpace(c.Body), "\n") {
 			out = append(out, "           "+style.Selected.Render("┃ ")+termsafe.Line(l))
 		}

@@ -91,6 +91,8 @@ func (m Model) startComment() (Model, tea.Cmd) {
 			m.status = "a range must stay in one file"
 		case sside != side:
 			m.status = "a range must stay on one side of the diff"
+		case m.hunkOf(m.rows[m.cursor].file, m.rows[m.rangeStart].line) != m.hunkOf(m.rows[m.cursor].file, m.rows[m.cursor].line):
+			m.status = "a range must stay in one hunk"
 		}
 		if m.status != "" {
 			m.rangeStart = -1
@@ -107,8 +109,60 @@ func (m Model) startComment() (Model, tea.Cmd) {
 	return m, m.editor.Focus()
 }
 
-// commentsAt are the draft comments ending on the given file line.
+// orphansOf are draft comments that no longer fit the diff: on this file at
+// a line it no longer has, or, for the first file, on files no longer in
+// the pull request. They stay reachable from the file header.
+func (m Model) orphansOf(fi int) []int {
+	present := map[string]bool{}
+	for _, f := range m.files {
+		present[f.Patch.Path] = true
+	}
+	f := m.files[fi]
+	fits := map[string]bool{}
+	for li := range f.Lines {
+		if line, side, ok := f.Position(li); ok {
+			fits[fmt.Sprint(line, side)] = true
+		}
+	}
+	var out []int
+	for i, c := range m.draft.Comments {
+		switch {
+		case c.Path == f.Patch.Path && !fits[fmt.Sprint(c.Line, c.Side)]:
+			out = append(out, i)
+		case fi == 0 && !present[c.Path]:
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func (m Model) orphanNote(c review.DraftComment, fi int) string {
+	if c.Path != m.files[fi].Patch.Path {
+		return c.Path + " is no longer in this pull request"
+	}
+	return fmt.Sprintf("line %d is no longer in the diff", c.Line)
+}
+
+// hunkOf is the hunk a line index belongs to, counted from 1.
+func (m Model) hunkOf(fi, li int) int {
+	n := 0
+	for i := 0; i <= li && i < len(m.files[fi].Lines); i++ {
+		if m.files[fi].Lines[i].Kind == review.HunkHeader {
+			n++
+		}
+	}
+	return n
+}
+
+// commentsAt are the draft comments shown at row ri: those ending on its
+// line, or a file header's orphans.
 func (m Model) commentsAt(ri int) []int {
+	if ri < 0 || ri >= len(m.rows) {
+		return nil
+	}
+	if r := m.rows[ri]; r.line == HeaderRow {
+		return m.orphansOf(r.file)
+	}
 	path, line, side, why := m.position(ri)
 	if why != "" {
 		return nil
@@ -192,6 +246,10 @@ func (m Model) editorKey(k tea.KeyMsg) (Model, tea.Cmd) {
 				m.pending = nil
 				return m.choose(ev)
 			}
+			return m, nil
+		}
+		if blank(body) {
+			m.mode, m.status = modeNormal, "empty comment discarded"
 			return m, nil
 		}
 		c := m.compose.target

@@ -213,6 +213,14 @@ func (m Model) key(k tea.KeyMsg) (Model, tea.Cmd) {
 		if err := review.SaveDraft(m.deps.Store, m.draft); err != nil {
 			m.status = "could not save: " + err.Error()
 		}
+	case "u":
+		if m.stale {
+			m.draft.HeadSHA, m.stale = m.diff.HeadSHA, false
+			m = m.saveDraft()
+			if m.status == "" {
+				m.status = "the draft now belongs to the new head"
+			}
+		}
 	case "f":
 		m.showList = !m.showList
 	case "o":
