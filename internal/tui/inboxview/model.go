@@ -196,6 +196,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, emit(msgs.Status{Text: fmt.Sprintf("%s has no pull request yet", termsafe.Line(it.Branch))})
 		}
 		return m, emit(msgs.OpenThread{ID: it.ID})
+	case "d":
+		it, ok := m.Current()
+		if !ok {
+			return m, nil
+		}
+		if !isPR(it) {
+			return m, emit(msgs.Status{Text: "d works on pull requests"})
+		}
+		return m, emit(msgs.OpenReview{ID: it.ID})
 	case "t":
 		ids := m.targets()
 		if len(ids) == 0 {
@@ -218,6 +227,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// isPR uses the kind, and the checks GitHub reports only for pull requests.
+func isPR(it inbox.Item) bool {
+	switch it.Kind {
+	case forge.OwnPR, forge.IncomingPR, forge.ReviewRequest:
+		return true
+	}
+	return it.Checks != nil
 }
 
 // targets is the selection in display order, or the item under the cursor.
@@ -398,7 +416,7 @@ func (m Model) View() string {
 	if n := len(m.selected); n > 0 {
 		foot = append(foot, style.Selected.Render(fmt.Sprintf("%d selected", n)))
 	}
-	foot = append(foot, style.Dim.Render("enter open · t triage · space select · / filter · n issue · o web · x mute · R refresh · q quit"))
+	foot = append(foot, style.Dim.Render("enter open · d diff · t triage · space select · / filter · n issue · x mute · R refresh · q quit"))
 
 	room := m.height - len(top) - len(foot)
 	if room > 0 && len(list) > room {

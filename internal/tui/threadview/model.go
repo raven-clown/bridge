@@ -233,6 +233,11 @@ func (m Model) updateKeys(k tea.KeyMsg) (Model, tea.Cmd) {
 		return m.startCompose("", "New comment")
 	case "t":
 		return m, emit(msgs.OpenTriage{IDs: []forge.ItemID{m.id}})
+	case "d":
+		if !m.th.Item.IsPR {
+			return m, emit(msgs.Status{Text: "d works on pull requests"})
+		}
+		return m, emit(msgs.OpenReview{ID: m.id})
 	case "e":
 		return m, emit(msgs.Status{Text: "editing comments lands in v0.2"})
 	case "o":
@@ -409,7 +414,7 @@ func (m Model) View() string {
 		}
 		foot = append(foot, style.Dim.Render(hint))
 	} else {
-		foot = append(foot, style.Dim.Render("j/k move · r reply · c comment · t triage · o web · q back"))
+		foot = append(foot, style.Dim.Render("j/k move · r reply · c comment · d diff · t triage · o web · q back"))
 	}
 
 	room := m.height - len(foot)

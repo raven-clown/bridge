@@ -4,7 +4,7 @@ A terminal control room for people who maintain many repositories. One screen sh
 
 One static binary. Runs on Windows, macOS and Linux with no tmux, no `gh` and no shell plugins. Free and open source under Apache-2.0, with no telemetry.
 
-Status: v0.1 in progress. Review, merge and release from the terminal come next. See [docs/design.md](docs/design.md).
+Status: v0.1 in progress. Merge and release from the terminal come next. See [docs/design.md](docs/design.md).
 
 ## Install
 
@@ -54,6 +54,25 @@ In a thread, `j` and `k` move between comments, `r` replies to the comment under
 
 The triage panel sets labels, milestone, assignees, a project column and open or closed state on one item or many at once.
 
+## Reviewing a pull request
+
+Press `d` on a pull request in the inbox or in its thread to open its diff: a file list on the left and every file's changes in one continuous view. Lock files and generated files start folded, and files GitHub does not send a diff for say so.
+
+| Key | In the diff |
+|---|---|
+| `j` / `k`, `ctrl+d` / `ctrl+u` | move a line, half a page |
+| `]` / `[`, `}` / `{` | next and previous hunk, file |
+| `c` | comment on the line under the cursor |
+| `v`, then move, then `c` | comment on a range of lines |
+| `e` / `D` | edit or delete your draft comment on this line |
+| `s` | write the summary |
+| `S` | submit: comment, approve or request changes |
+| `z` | fold or unfold the file |
+| `x` | mark the file viewed |
+| `f` | show or hide the file list |
+
+Comments are kept as a local draft until you submit, together with the commit you reviewed. If someone pushes while you review, bridge says so before submitting, since your comments may point at lines that moved.
+
 ## Commands
 
 The same operations work without the UI, with `--json` for scripts:
@@ -64,6 +83,8 @@ bridge thread owner/name#12 [--json]
 bridge triage owner/name#12 https://github.com/owner/name/issues/13 --label bug --assign me
 bridge triage owner/name#12 --project "Roadmap/In Progress" --milestone v0.1
 bridge issue new owner/name --title "Crash on start" --body-file notes.md
+bridge review owner/name#12
+bridge review owner/name#12 --request-changes -m "The parser drops the last line"
 bridge auth status
 ```
 

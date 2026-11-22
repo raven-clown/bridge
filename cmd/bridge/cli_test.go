@@ -16,6 +16,7 @@ import (
 	"github.com/raven-clown/bridge/forge"
 	"github.com/raven-clown/bridge/forge/forgetest"
 	"github.com/raven-clown/bridge/inbox"
+	"github.com/raven-clown/bridge/review"
 	"github.com/raven-clown/bridge/store"
 )
 
@@ -70,7 +71,11 @@ func TestParseRef(t *testing.T) {
 		{in: "https://github.com/o/a/issues/12", want: ref(12)},
 		{in: "https://github.com/o/a/issues/12#issuecomment-1", want: ref(12)},
 		{in: "o/a#12", want: ref(12)},
-		{in: "ghe.corp/t/x#3", want: forge.ItemID{Repo: forge.RepoID{Host: "ghe.corp", Owner: "t", Name: "x"}, Number: 3}},
+		{in: "ghe.corp/t/x#3", wantErr: true},
+		{in: "https://github.com/o/a/pull/12/files", want: ref(12)},
+		{in: "https://github.com/o/a/pull/12/commits", want: ref(12)},
+		{in: "https://github.com/o/a/pull/12/checks?x=1", want: ref(12)},
+		{in: "https://gitlab.com/o/a/issues/1", wantErr: true},
 		{in: "o/a", wantErr: true},
 		{in: "o/a#x", wantErr: true},
 		{in: "https://github.com/o/a", wantErr: true},
@@ -80,6 +85,24 @@ func TestParseRef(t *testing.T) {
 		if (err != nil) != tt.wantErr || (!tt.wantErr && got != tt.want) {
 			t.Errorf("parseRef(%q) = %v, %v", tt.in, got, err)
 		}
+	}
+}
+
+func TestParseRefOtherHostSaysUnsupported(t *testing.T) {
+	_, err := parseRef("https://gitlab.com/o/a/issues/1")
+	if err == nil || !strings.Contains(err.Error(), "gitlab.com") || !strings.Contains(err.Error(), "not supported yet") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestWireWarnsAboutMissingRoots(t *testing.T) {
+	h := newHarness(t, "roots: [\""+filepath.ToSlash(filepath.Join(t.TempDir(), "nope"))+"\", \"~/src\"]\n")
+	_, errOut, err := h.run("inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut, "does not exist") || !strings.Contains(errOut, "~ is not expanded") {
+		t.Fatalf("stderr:\n%s", errOut)
 	}
 }
 
@@ -323,6 +346,91 @@ func TestTriageAssignMeResolvesToLogin(t *testing.T) {
 	one, _ := h.fake.Thread(t.Context(), ref(1))
 	if len(two.Item.Assignees) != 1 || two.Item.Assignees[0].Login != "raven" || len(one.Item.Assignees) != 0 {
 		t.Fatalf("#2 %+v, #1 %+v", two.Item.Assignees, one.Item.Assignees)
+	}
+}
+
+func reviewHarness(t *testing.T) *harness {
+	t.Helper()
+	h := newHarness(t, "")
+	h.fake.Diffs[ref(5)] = forge.Diff{PR: ref(5), HeadSHA: "head", Files: []forge.FilePatch{
+		{Path: "main.go", Status: forge.FileModified, Additions: 3, Deletions: 1, Patch: "@@ -1 +1 @@\n-a\n+b"},
+		{Path: "go.sum", Status: forge.FileModified, Additions: 4, Patch: "@@ -1 +1 @@\n+x"},
+		{Path: "logo.png", Status: forge.FileAdded, PatchMissing: true},
+	}}
+	return h
+}
+
+func TestReviewListsFiles(t *testing.T) {
+	h := reviewHarness(t)
+	out, _, err := h.run("review", "o/a#5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"modified main.go +3 -1", "go.sum +4 -0 (lock file)", "logo.png +0 -0 (binary or too large to show)", "3 files, +7 -1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	out, _, err = h.run("review", "o/a#5", "--json")
+	var d forge.Diff
+	if err != nil || json.Unmarshal([]byte(out), &d) != nil || len(d.Files) != 3 {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+}
+
+func TestReviewApprove(t *testing.T) {
+	h := reviewHarness(t)
+	if _, _, err := h.run("review", "o/a#5", "--approve"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.fake.Reviews[ref(5)]; len(got) != 1 || got[0].Event != forge.EventApprove {
+		t.Fatalf("reviews = %+v", got)
+	}
+}
+
+func TestReviewRequestChangesNeedsMessage(t *testing.T) {
+	h := reviewHarness(t)
+	for _, flag := range []string{"--request-changes", "--comment"} {
+		if _, _, err := h.run("review", "o/a#5", flag); err == nil || !strings.Contains(err.Error(), "-m") {
+			t.Fatalf("%s: got %v", flag, err)
+		}
+	}
+	if _, _, err := h.run("review", "o/a#5", "--request-changes", "-m", "please fix"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.fake.Reviews[ref(5)]; len(got) != 1 || got[0].Body != "please fix" || got[0].Event != forge.EventRequestChanges {
+		t.Fatalf("reviews = %+v", got)
+	}
+}
+
+func TestReviewOneEventOnly(t *testing.T) {
+	h := reviewHarness(t)
+	if _, _, err := h.run("review", "o/a#5", "--approve", "--comment", "-m", "x"); err == nil {
+		t.Fatal("two events: want error")
+	}
+}
+
+func TestReviewStaleExitsOne(t *testing.T) {
+	h := reviewHarness(t)
+	s, err := store.Open(h.opts.stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := review.Draft{PR: ref(5), HeadSHA: "old"}
+	d.Add(review.DraftComment{Path: "main.go", Line: 1, Side: forge.SideRight, Body: "from the TUI"})
+	if err := review.SaveDraft(s, d); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = h.run("review", "o/a#5", "--approve")
+	var ee *exitError
+	if !errors.As(err, &ee) || ee.code != 1 || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("got %v", err)
+	}
+	if _, _, err := h.run("review", "o/a#5", "--approve", "--force"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.fake.Reviews[ref(5)]; len(got) != 1 || got[0].CommitSHA != "head" || len(got[0].Comments) != 1 {
+		t.Fatalf("reviews = %+v", got)
 	}
 }
 

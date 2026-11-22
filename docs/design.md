@@ -83,7 +83,7 @@ Working name: `bridge`, as in a ship's bridge. The name is not final.
 |   auth/       token sources: env, keyring, device flow         |
 +----------------------------------------------------------------+
             |                      |                     |
-      go-git (git)    go-github + githubv4 (API)     go-keyring
+      go-git (git)   net/http: GraphQL + REST (API)   go-keyring
 ```
 
 **Packages**
@@ -93,7 +93,7 @@ Working name: `bridge`, as in a ship's bridge. The name is not final.
 
 **Key dependencies**
 - `charmbracelet/bubbletea`, `bubbles` and `lipgloss` for the terminal. Windows Terminal and ConPTY are supported.
-- `google/go-github` for REST and `shurcooL/githubv4` for GraphQL, with typed query structs. Projects v2 is GraphQL only, so the GraphQL path is first class. Device flow login is a small package of our own over the two OAuth endpoints.
+- GitHub is called with `net/http` directly: GraphQL query strings for reads, REST for most writes, decoded into our own structs. Search results need `... on Issue` and `... on PullRequest` fragments, which typed query libraries make awkward, and raw JSON is easy to record as test fixtures. Projects v2 is GraphQL only, so the GraphQL path is first class. Device flow login is a small package of our own over the two OAuth endpoints.
 - `go-git/go-git` for local repositories: remotes, HEAD, ahead/behind, worktrees, dirty state, fast-forward. Pure Go, no `git` binary. Status on a large repository is the slow path, so discovery caches it and the repos view refreshes it in the background.
 - `zalando/go-keyring` for the OS credential store (Windows Credential Manager, macOS Keychain, Secret Service).
 - `gopkg.in/yaml.v3` for config, `spf13/cobra` for subcommands, `charmbracelet/x/exp/teatest` for TUI tests, `net/http/httptest` with recorded fixtures for API tests.
@@ -285,7 +285,7 @@ Views on tabs, vim-style keys plus arrows, a status bar with account, rate limit
 - **Inbox.** One row per item: urgency marker, repo, kind glyph, number, title, author, labels, milestone, checks glyph, review glyph, unanswered count, age. `enter` opens the thread, `d` opens the review for a pull request, `space` selects for multi-action, `t` triage panel, `c` quick comment, `m` merge, `a` approve fork runs, `r` rerun failed, `u` update branch, `n` new issue, `o` open in browser, `x` mute, `/` filter, `R` refresh. Section headers group by kind; `tab` jumps between sections.
 - **Thread.** Body, comments and review threads in order, with author, time and reactions. `r` reply to the comment under the cursor, `c` new comment, `t` triage panel, `d` review (pull requests), `e` edit your own comment, `q` back. The compose box is multi-line Markdown with `ctrl+s` to send and `esc` to keep as a draft.
 - **Triage panel.** A side panel over the inbox or thread with pickers for labels (multi-select with fuzzy search), milestone, assignees, project and project column, and state. Applies to the current item or every selected item. Shows one result line per item.
-- **Review.** Left: file list with viewed marks. Right: continuous diff. `]` `[` next and previous hunk, `}` `{` next and previous file, `c` comment on line, `v` then `c` comment on range, `s` summary, `S` submit with a picker: comment, approve, request changes. `z` toggles collapsed files.
+- **Review.** Left: file list with viewed marks. Right: continuous diff. `]` `[` next and previous hunk, `}` `{` next and previous file, `c` comment on line, `v` then `c` comment on range, `s` summary, `S` submit with a picker: comment, approve, request changes. `z` toggles collapsed files. `h` `l` scroll long lines sideways and `0` scrolls back. Text in the comment or summary editor is saved to the draft as it is typed, so `esc` keeps it for the next `c` or `s`.
 - **Ship.** A confirmation panel over the inbox: policy, resulting title, method, what happens after. `y` to go.
 - **Release.** Repository picker, bump picker, preview of tag and notes, `y` to create.
 - **Project** (v0.2). One GitHub Project as columns, items as cards with repo and number, `h` `l` move between columns, `enter` opens the thread, `f` edit a field.

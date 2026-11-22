@@ -5,6 +5,7 @@ import "github.com/raven-clown/bridge/forge"
 
 type (
 	OpenThread   struct{ ID forge.ItemID }
+	OpenReview   struct{ ID forge.PRID }
 	OpenTriage   struct{ IDs []forge.ItemID }
 	NewIssue     struct{}
 	Refresh      struct{}

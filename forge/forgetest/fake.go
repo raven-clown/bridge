@@ -34,6 +34,8 @@ type Fake struct {
 	Block map[string]chan struct{}
 	// ReadOnly repositories are left out by Writable; all others are writable.
 	ReadOnly map[forge.RepoID]bool
+	Diffs    map[forge.PRID]forge.Diff
+	Reviews  map[forge.PRID][]forge.Review
 
 	seq          int
 	lastIncoming []forge.RepoID
@@ -73,7 +75,38 @@ func New() *Fake {
 		States:         map[forge.ItemID]forge.ItemState{},
 		Err:            map[string]error{},
 		Block:          map[string]chan struct{}{},
+		Diffs:          map[forge.PRID]forge.Diff{},
+		Reviews:        map[forge.PRID][]forge.Review{},
 	}
+}
+
+func (f *Fake) PRDiff(_ context.Context, pr forge.PRID) (forge.Diff, error) {
+	if err := f.enter("PRDiff"); err != nil {
+		return forge.Diff{}, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d, ok := f.Diffs[pr]
+	if !ok {
+		return forge.Diff{}, forge.ErrNotFound
+	}
+	d.Files = slices.Clone(d.Files)
+	return d, nil
+}
+
+// SubmitReview refuses a review written against an older head, as GitHub
+// does when commented lines no longer exist.
+func (f *Fake) SubmitReview(_ context.Context, pr forge.PRID, rv forge.Review) error {
+	if err := f.enter("SubmitReview"); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if d, ok := f.Diffs[pr]; ok && d.HeadSHA != rv.CommitSHA {
+		return forge.ErrStaleHead
+	}
+	f.Reviews[pr] = append(f.Reviews[pr], rv)
+	return nil
 }
 
 func (f *Fake) CallLog() []string {

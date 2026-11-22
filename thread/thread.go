@@ -19,9 +19,9 @@ func Load(ctx context.Context, f forge.Forge, s *store.Store, id forge.ItemID) (
 	if err != nil {
 		return forge.Thread{}, err
 	}
-	if err := s.MarkSeen(id, time.Now()); err != nil {
-		return th, err
-	}
+	// The seen mark only drives the "new" marker, so a failure to write it
+	// must not make the thread look unloadable.
+	_ = s.MarkSeen(id, time.Now())
 	return th, nil
 }
 

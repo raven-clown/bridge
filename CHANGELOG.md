@@ -6,6 +6,14 @@ All notable changes are listed here. The format follows Keep a Changelog, and ve
 
 ### Added
 
+- Review a pull request in the terminal: a continuous diff with a file list, folded lock and generated files, line and range comments kept as a local draft, a summary, and submit as comment, approve or request changes. `d` opens it from the inbox or a thread.
+- `bridge review` lists a pull request's files or submits a review, including comments drafted in the terminal.
+- A review drafted before someone pushed asks before submitting, since its comments may point at lines that moved.
+- A comment or summary half typed in a review is kept in the draft, so closing the editor or the terminal does not lose it. A draft file that cannot be read is reported and left alone.
+- Pull request links to the files, commits or checks tab work wherever a reference is accepted.
+- `--json` names states (`review-request`, `passing`, `approved`) instead of numbers.
+- Roots that do not exist, or start with `~`, are reported instead of quietly finding nothing.
+
 - One ranked inbox across every repository under your roots: your pull requests, pull requests and issues opened against your repositories, review requests, comments waiting for your answer, and branches pushed without a pull request.
 - Only clones you can push to count as your repositories, so a workspace full of other projects' clones does not flood the inbox.
 - Comments from bots never count as waiting for your answer.

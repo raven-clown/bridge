@@ -52,7 +52,7 @@ func newTriageCmd(opts *wireOptions) *cobra.Command {
 				return errors.New("nothing to change: pass --label, --unlabel, --milestone, --no-milestone, --assign, --unassign, --project, --close or --reopen")
 			}
 
-			a, err := wire(cmd.Context(), *opts)
+			a, err := wireCmd(cmd, *opts)
 			if err != nil {
 				return err
 			}

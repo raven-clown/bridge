@@ -1,0 +1,19 @@
+o/a#42  feat/x into main
+Files                          > main.go  +3 -2                                                                         
+>   main.go +3 -2                          @@ package main                                                              
+    go.sum +2 -0                    1    1  package main                                                                
+    util.go +2 -0                   2      -import "fmt"                                                                
+                                         2 +import (                                                                    
+                                         3 +    "fmt"                                                                   
+                                    3    4                                                                              
+                                           @@ func main() {                                                             
+                                   10      -    fmt.Println("hi")                                                       
+                                        11 +    fmt.Println("hello")                                                    
+                                   11   12  }                                                                           
+                                 go.sum  +2 -0                                                                          
+                                     (lock file, z to expand)                                                           
+                                 util.go  +2 -0                                                                         
+                                           @@                                                                           
+                                         1 +package main                                                                
+                                         2 +func util() {}                                                              
+c comment · v range · s summary · S submit · ]/[ hunk · }/{ file · z fold · x viewed · h/l scroll · f files · q back

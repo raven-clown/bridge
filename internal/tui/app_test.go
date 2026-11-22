@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -151,6 +152,18 @@ func TestAppOpensThreadAndBack(t *testing.T) {
 	}
 }
 
+func TestAppRefreshesAfterThread(t *testing.T) {
+	d, f := deps(t)
+	id := forge.ItemID{Repo: repoA, Number: 7}
+	f.Threads[id] = forge.Thread{Item: forge.Item{ID: id}}
+	m := drive(sized(newApp(context.Background(), d)), msgs.OpenThread{ID: id})
+	before := len(f.CallLog())
+	m = drive(m, tuitest.Key("q"))
+	if !slices.Contains(f.CallLog()[before:], "ListMyPRs") || !strings.Contains(m.View(), "refreshed") {
+		t.Fatalf("no refresh after leaving the thread; calls %v", f.CallLog()[before:])
+	}
+}
+
 func TestAppQInThreadDoesNotQuit(t *testing.T) {
 	d, f := deps(t)
 	id := forge.ItemID{Repo: repoA, Number: 7}
@@ -202,6 +215,30 @@ func TestAppNewIssueCreated(t *testing.T) {
 	view := m.View()
 	if strings.Contains(view, "New issue") || !strings.Contains(view, "created https://github.com/o/a/issues/") {
 		t.Fatalf("view:\n%s", view)
+	}
+}
+
+func TestInboxDOpensReview(t *testing.T) {
+	d, f := deps(t)
+	pr := forge.ItemID{Repo: repoA, Number: 9}
+	f.Incoming = []forge.Item{{ID: pr, IsPR: true, Title: "Some PR", Checks: &forge.Checks{State: forge.ChecksPassing}}}
+	f.Diffs[pr] = forge.Diff{PR: pr, HeadSHA: "h", Files: []forge.FilePatch{{Path: "diffed.go", Patch: "@@ -1 +1 @@\n+x"}}}
+	var m tea.Model = sized(newApp(context.Background(), d))
+	m = drive(m, refreshDoneMsg(d.Refresher.Refresh(context.Background())))
+	m = drive(m, tuitest.Key("d"))
+	if !strings.Contains(m.View(), "diffed.go") {
+		t.Fatalf("review not shown:\n%s", m.View())
+	}
+}
+
+func TestInboxDOnIssueSaysPRsOnly(t *testing.T) {
+	d, f := deps(t)
+	f.Incoming = []forge.Item{{ID: forge.ItemID{Repo: repoA, Number: 9}, Title: "An issue"}}
+	var m tea.Model = sized(newApp(context.Background(), d))
+	m = drive(m, refreshDoneMsg(d.Refresher.Refresh(context.Background())))
+	m = drive(m, tuitest.Key("d"))
+	if !strings.Contains(m.View(), "d works on pull requests") {
+		t.Fatalf("view:\n%s", m.View())
 	}
 }
 

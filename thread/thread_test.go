@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -32,6 +33,23 @@ func TestLoadMarksSeen(t *testing.T) {
 	}
 	if seen, _ := s.Seen(id); seen == nil {
 		t.Fatal("not marked seen")
+	}
+}
+
+func TestLoadSurvivesSeenFailure(t *testing.T) {
+	f := forgetest.New()
+	f.Threads[id] = forge.Thread{Item: forge.Item{ID: id}, Body: "b"}
+	dir := filepath.Join(t.TempDir(), "state")
+	s, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	th, err := Load(context.Background(), f, s, id)
+	if err != nil || th.Body != "b" {
+		t.Fatalf("thread %+v err %v", th, err)
 	}
 }
 

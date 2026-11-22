@@ -33,7 +33,7 @@ func newIssueCmd(opts *wireOptions) *cobra.Command {
 				}
 				d.Body = string(b)
 			}
-			a, err := wire(cmd.Context(), *opts)
+			a, err := wireCmd(cmd, *opts)
 			if err != nil {
 				return err
 			}

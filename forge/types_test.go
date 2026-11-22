@@ -1,6 +1,9 @@
 package forge
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestParseRepoID(t *testing.T) {
 	tests := []struct {
@@ -42,6 +45,47 @@ func TestRepoIDString(t *testing.T) {
 	id := ItemID{Repo: r, Number: 12}
 	if id.String() != "a/b#12" {
 		t.Fatalf("got %q", id.String())
+	}
+}
+
+func TestEnumsMarshalAsNames(t *testing.T) {
+	review, merge := ReviewChangesRequested, MergeableConflicting
+	b, err := json.Marshal(struct {
+		Kind      InboxKind    `json:"kind"`
+		Checks    Checks       `json:"checks"`
+		Review    *ReviewState `json:"review"`
+		Mergeable *Mergeable   `json:"mergeable"`
+	}{ReviewRequest, Checks{State: ChecksAwaitingApproval}, &review, &merge})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"kind":"review-request","checks":{"state":"awaiting-approval"},"review":"changes-requested","mergeable":"conflicting"}`
+	if string(b) != want {
+		t.Fatalf("got  %s\nwant %s", b, want)
+	}
+}
+
+func TestEnumsUnmarshalOldIntegers(t *testing.T) {
+	var v struct {
+		Kind      InboxKind   `json:"kind"`
+		State     CheckState  `json:"state"`
+		Review    ReviewState `json:"review"`
+		Mergeable Mergeable   `json:"mergeable"`
+	}
+	if err := json.Unmarshal([]byte(`{"kind":3,"state":4,"review":2,"mergeable":1}`), &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Kind != ReviewRequest || v.State != ChecksPassing || v.Review != ReviewApproved || v.Mergeable != MergeableClean {
+		t.Fatalf("numbers: %+v", v)
+	}
+	if err := json.Unmarshal([]byte(`{"kind":"review-request","state":"passing","review":"approved","mergeable":"clean"}`), &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Kind != ReviewRequest || v.State != ChecksPassing {
+		t.Fatalf("names: %+v", v)
+	}
+	if err := json.Unmarshal([]byte(`{"kind":"nope"}`), &v); err == nil {
+		t.Fatal("unknown name: want error")
 	}
 }
 
