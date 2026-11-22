@@ -13,6 +13,7 @@ All notable changes are listed here. The format follows Keep a Changelog, and ve
 - Pull request links to the files, commits or checks tab work wherever a reference is accepted.
 - `--json` names states (`review-request`, `passing`, `approved`) instead of numbers.
 - Roots that do not exist, or start with `~`, are reported instead of quietly finding nothing.
+- Contributor guide, code of conduct, security policy, and issue and pull request templates.
 
 - One ranked inbox across every repository under your roots: your pull requests, pull requests and issues opened against your repositories, review requests, comments waiting for your answer, and branches pushed without a pull request.
 - Only clones you can push to count as your repositories, so a workspace full of other projects' clones does not flood the inbox.

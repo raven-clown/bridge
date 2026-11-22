@@ -1,0 +1,60 @@
+name: Bug report
+description: Something does not work as described
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. Never paste a GitHub token here; redact it from any output.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, including any error message.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `bridge`
+        2. Press `d` on a pull request
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: bridge version
+      description: Output of `bridge version`.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and terminal
+      placeholder: Windows 11, Windows Terminal
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Config
+      description: The relevant part of your config.yaml, if it matters.
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      render: shell
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Drag an image here if the problem is in the terminal UI.
