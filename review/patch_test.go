@@ -78,6 +78,15 @@ func TestParseNoNewlineMarker(t *testing.T) {
 	}
 }
 
+func TestParseTrailingNewlineAddsNoLine(t *testing.T) {
+	for _, patch := range []string{"@@ -1 +1 @@\n-a\n+b\n", "@@ -1 +1 @@\r\n-a\r\n+b\r\n"} {
+		f, err := Parse(forge.FilePatch{Path: "a", Patch: patch})
+		if err != nil || len(f.Lines) != 3 {
+			t.Fatalf("%q: lines %+v err %v", patch, f.Lines, err)
+		}
+	}
+}
+
 func TestParseMalformedHeader(t *testing.T) {
 	_, err := Parse(forge.FilePatch{Path: "broken.go", Patch: "@@ nope @@\n+x"})
 	if err == nil || !strings.Contains(err.Error(), "broken.go") {

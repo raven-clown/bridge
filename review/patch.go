@@ -49,7 +49,8 @@ func Parse(p forge.FilePatch) (File, error) {
 	}
 	var oldN, newN int
 	inHunk := false
-	for _, raw := range strings.Split(strings.ReplaceAll(p.Patch, "\r\n", "\n"), "\n") {
+	text := strings.TrimSuffix(strings.ReplaceAll(p.Patch, "\r\n", "\n"), "\n")
+	for _, raw := range strings.Split(text, "\n") {
 		if strings.HasPrefix(raw, "@@") {
 			m := hunkHeader.FindStringSubmatch(raw)
 			if m == nil {
