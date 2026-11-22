@@ -29,10 +29,76 @@ func (m Model) topLines() []string {
 
 func (m Model) footLines() []string {
 	var lines []string
+	switch m.mode {
+	case modeComment, modeSummary:
+		title := "Summary"
+		if m.mode == modeComment {
+			t := m.compose.target
+			where := fmt.Sprintf("%s:%d", t.Path, t.Line)
+			if t.StartLine > 0 {
+				where = fmt.Sprintf("%s:%d-%d", t.Path, t.StartLine, t.Line)
+			}
+			title = "Comment on " + termsafe.Line(where)
+		}
+		lines = append(lines, style.Section.Render(title))
+		lines = append(lines, strings.Split(m.editor.View(), "\n")...)
+		return append(lines, style.Dim.Render("ctrl+s save · esc cancel"))
+	case modePick:
+		lines = append(lines, style.Section.Render("Submit the review as"))
+		for i, e := range events {
+			mark := "  "
+			if i == m.pick {
+				mark = "> "
+			}
+			lines = append(lines, mark+e.name)
+		}
+		return append(lines, style.Dim.Render("enter choose · esc cancel"))
+	case modeConfirm, modeStale, modeSending:
+		return []string{style.Banner.Render(m.prompt())}
+	}
 	if m.status != "" {
 		lines = append(lines, style.Banner.Render(termsafe.Line(m.status)))
 	}
-	return append(lines, style.Dim.Render("j/k move · ]/[ hunk · }/{ file · z fold · x viewed · f files · o web · q back"))
+	return append(lines, style.Dim.Render("c comment · v range · s summary · S submit · ]/[ hunk · }/{ file · z fold · x viewed · f files · q back"))
+}
+
+// commentLines are the draft comments shown under row ri.
+func (m Model) commentLines(ri int) []string {
+	var out []string
+	for _, i := range m.commentsAt(ri) {
+		c := m.draft.Comments[i]
+		where := ""
+		if c.StartLine > 0 {
+			where = fmt.Sprintf(" on %d-%d", c.StartLine, c.Line)
+		}
+		out = append(out, "           "+style.Selected.Render("┃ you (draft)"+where))
+		for _, l := range strings.Split(strings.TrimSpace(c.Body), "\n") {
+			out = append(out, "           "+style.Selected.Render("┃ ")+termsafe.Line(l))
+		}
+	}
+	return out
+}
+
+// window renders rows from start until the body is full, with draft
+// comments under their lines, and reports whether the cursor was drawn.
+func (m Model) window(start, h int) ([]string, bool) {
+	var body []string
+	shown := false
+	for i := start; i < len(m.rows) && len(body) < h; i++ {
+		mark := "  "
+		switch i {
+		case m.cursor:
+			mark, shown = "> ", true
+		case m.rangeStart:
+			mark = "v "
+		}
+		body = append(body, mark+m.renderRow(m.rows[i]))
+		body = append(body, m.commentLines(i)...)
+	}
+	if len(body) > h {
+		body = body[:h]
+	}
+	return body, shown
 }
 
 func (m Model) bodyHeight() int {
@@ -131,13 +197,12 @@ func (m Model) View() string {
 		list = m.fileList(h)
 	}
 
-	body := make([]string, 0, h)
-	for i := m.top; i < len(m.rows) && i < m.top+h; i++ {
-		mark := "  "
-		if i == m.cursor {
-			mark = "> "
-		}
-		body = append(body, mark+m.renderRow(m.rows[i]))
+	// Comment lines take room, so move the start down until the cursor fits.
+	start := m.top
+	body, shown := m.window(start, h)
+	for !shown && start < m.cursor {
+		start++
+		body, shown = m.window(start, h)
 	}
 	for len(body) < h && m.showList && len(body) < len(list) {
 		body = append(body, "")

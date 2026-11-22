@@ -16,4 +16,4 @@ Files                          > main.go  +3 -2
                                            @@                                                                           
                                          1 +package main                                                                
                                          2 +func util() {}                                                              
-j/k move · ]/[ hunk · }/{ file · z fold · x viewed · f files · o web · q back
+c comment · v range · s summary · S submit · ]/[ hunk · }/{ file · z fold · x viewed · f files · q back

@@ -202,6 +202,159 @@ func TestReviewStaleDraftBanner(t *testing.T) {
 	}
 }
 
+func typeText(m Model, s string) Model {
+	for _, k := range tuitest.Type(s) {
+		m, _ = m.Update(k)
+	}
+	return m
+}
+
+func draftOf(t *testing.T, e env) review.Draft {
+	t.Helper()
+	d, _, err := review.LoadDraft(e.s, pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// Rows of sampleDiff: 0 main.go header, 1 hunk, 2 context (1/1), 3 removed (2),
+// 4 added (new 2), 5 added (new 3), 6 context (3/4), 7 hunk, ...
+
+func TestCommentOnLineSaved(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "j", "j", "j", "j", "c")
+	if !m.Editing() {
+		t.Fatal("editor not open")
+	}
+	m = typeText(m, "why parens")
+	m, _ = press(m, "ctrl+s")
+	d := draftOf(t, e)
+	if len(d.Comments) != 1 || d.Comments[0] != (review.DraftComment{Path: "main.go", Line: 2, Side: forge.SideRight, Body: "why parens"}) {
+		t.Fatalf("draft = %+v", d.Comments)
+	}
+	if !strings.Contains(m.View(), "why parens") || !strings.Contains(m.View(), "you (draft)") {
+		t.Fatalf("comment not shown inline:\n%s", m.View())
+	}
+}
+
+func TestRangeComment(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "j", "j", "j", "j", "v", "j", "j", "c")
+	m = typeText(m, "block")
+	_, _ = press(m, "ctrl+s")
+	c := draftOf(t, e).Comments[0]
+	if c.StartLine != 2 || c.Line != 4 || c.Side != forge.SideRight || c.StartSide != forge.SideRight {
+		t.Fatalf("range = %+v", c)
+	}
+}
+
+func TestRangeAcrossSidesRefused(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "j", "j", "j", "v", "j", "c")
+	if m.Editing() || !strings.Contains(m.View(), "one side") {
+		t.Fatalf("view:\n%s", m.View())
+	}
+}
+
+func TestRangeAcrossFilesRefused(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "j", "j", "j", "j", "v", "}", "}", "j", "j", "c")
+	if m.Editing() || !strings.Contains(m.View(), "one file") {
+		t.Fatalf("view:\n%s", m.View())
+	}
+	if len(draftOf(t, e).Comments) != 0 {
+		t.Fatal("draft comment added")
+	}
+}
+
+func TestCommentOnMissingFileRefused(t *testing.T) {
+	d := sampleDiff()
+	d.Files = append(d.Files, forge.FilePatch{Path: "logo.png", Status: forge.FileAdded, PatchMissing: true})
+	m := newEnv(t, d).open(120, 40)
+	m, _ = press(m, "G", "c")
+	if m.Editing() || !strings.Contains(m.View(), "cannot comment") || !strings.Contains(m.View(), "binary or too large") {
+		t.Fatalf("view:\n%s", m.View())
+	}
+}
+
+func TestEditAndDeleteDraftComment(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "j", "j", "j", "j", "c")
+	m = typeText(m, "first")
+	m, _ = press(m, "ctrl+s", "e")
+	m = typeText(m, " edited")
+	m, _ = press(m, "ctrl+s")
+	if got := draftOf(t, e).Comments; len(got) != 1 || got[0].Body != "first edited" {
+		t.Fatalf("after edit: %+v", got)
+	}
+	_, _ = press(m, "D")
+	if got := draftOf(t, e).Comments; len(got) != 0 {
+		t.Fatalf("after delete: %+v", got)
+	}
+}
+
+func TestSubmitApproveConfirms(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "j", "j", "j", "j", "c")
+	m = typeText(m, "nit")
+	m, _ = press(m, "ctrl+s", "S", "j", "enter")
+	if !strings.Contains(m.View(), "submit approve with 1 comment? y/n") {
+		t.Fatalf("no confirmation:\n%s", m.View())
+	}
+	_, out := press(m, "y")
+	got := e.f.Reviews[pr]
+	if len(got) != 1 || got[0].Event != forge.EventApprove || len(got[0].Comments) != 1 {
+		t.Fatalf("reviews = %+v", got)
+	}
+	back := false
+	for _, msg := range out {
+		back = back || msg == (msgs.Back{})
+	}
+	if !back {
+		t.Fatalf("no Back after submitting: %+v", out)
+	}
+}
+
+func TestRequestChangesAsksForSummary(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	m := e.open(120, 30)
+	m, _ = press(m, "S", "j", "j", "enter")
+	if !m.Editing() || !strings.Contains(m.View(), "Summary") {
+		t.Fatalf("summary editor not opened:\n%s", m.View())
+	}
+	if len(e.f.Reviews[pr]) != 0 {
+		t.Fatal("submitted without a summary")
+	}
+	m = typeText(m, "please fix")
+	m, _ = press(m, "ctrl+s", "y")
+	if got := e.f.Reviews[pr]; len(got) != 1 || got[0].Event != forge.EventRequestChanges || got[0].Body != "please fix" {
+		t.Fatalf("reviews = %+v\n%s", got, m.View())
+	}
+}
+
+func TestSubmitStaleOffersChoice(t *testing.T) {
+	e := newEnv(t, sampleDiff())
+	if err := review.SaveDraft(e.s, review.Draft{PR: pr, HeadSHA: "older", Summary: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	m := e.open(120, 30)
+	m, _ = press(m, "S", "j", "enter", "y")
+	if !strings.Contains(m.View(), "the pull request changed") || len(e.f.Reviews[pr]) != 0 {
+		t.Fatalf("no stale prompt:\n%s", m.View())
+	}
+	_, _ = press(m, "y")
+	if got := e.f.Reviews[pr]; len(got) != 1 || got[0].CommitSHA != "head1" {
+		t.Fatalf("reviews = %+v", got)
+	}
+}
+
 func TestReviewKeys(t *testing.T) {
 	m := newEnv(t, sampleDiff()).open(120, 30)
 	_, out := press(m, "q")

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/raven-clown/bridge/config"
@@ -59,13 +60,21 @@ type Model struct {
 	top      int
 	showList bool
 	status   string
+
+	mode       mode
+	rangeStart int
+	compose    compose
+	editor     textarea.Model
+	pick       int
+	event      forge.ReviewEvent
+	pending    *forge.ReviewEvent
 }
 
 func New(pr forge.PRID, d Deps, width, height int) Model {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return Model{pr: pr, deps: d, width: width, height: height, showList: width >= 90}
+	return Model{pr: pr, deps: d, width: width, height: height, showList: width >= 90, rangeStart: -1}
 }
 
 func (m Model) SetSize(width, height int) Model {
@@ -139,7 +148,22 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.rebuild()
 		return m, nil
+	case submittedMsg:
+		if msg.pr != m.pr {
+			return m, nil
+		}
+		return m.submitted(msg)
 	case tea.KeyMsg:
+		switch m.mode {
+		case modeComment, modeSummary:
+			return m.editorKey(msg)
+		case modePick:
+			return m.pickKey(msg)
+		case modeConfirm, modeStale:
+			return m.promptKey(msg)
+		case modeSending:
+			return m, nil
+		}
 		return m.key(msg)
 	}
 	return m, nil
@@ -194,7 +218,13 @@ func (m Model) key(k tea.KeyMsg) (Model, tea.Cmd) {
 	case "o":
 		return m, emit(msgs.OpenURL{URL: fmt.Sprintf("https://%s/%s/%s/pull/%d/files", m.pr.Repo.Host, m.pr.Repo.Owner, m.pr.Repo.Name, m.pr.Number)})
 	case "q", "esc":
+		if m.rangeStart >= 0 {
+			m.rangeStart = -1
+			return m, nil
+		}
 		return m, emit(msgs.Back{})
+	case "v", "c", "e", "D", "s", "S":
+		return m.commentKey(k)
 	}
 	m.keepVisible()
 	return m, nil

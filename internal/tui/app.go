@@ -18,6 +18,7 @@ import (
 	"github.com/raven-clown/bridge/internal/tui/inboxview"
 	"github.com/raven-clown/bridge/internal/tui/issueview"
 	"github.com/raven-clown/bridge/internal/tui/msgs"
+	"github.com/raven-clown/bridge/internal/tui/reviewview"
 	"github.com/raven-clown/bridge/internal/tui/style"
 	"github.com/raven-clown/bridge/internal/tui/threadview"
 	"github.com/raven-clown/bridge/internal/tui/triageview"
@@ -50,6 +51,7 @@ const (
 	viewInbox view = iota
 	viewThread
 	viewIssue
+	viewReview
 )
 
 type Model struct {
@@ -61,6 +63,7 @@ type Model struct {
 	inbox         inboxview.Model
 	thread        threadview.Model
 	issue         issueview.Model
+	review        reviewview.Model
 
 	triaging bool
 	triage   triageview.Model
@@ -104,10 +107,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.inbox = m.inbox.SetSize(m.width, m.height-1)
-		if m.view == viewThread {
+		switch m.view {
+		case viewThread:
 			m.thread = m.thread.SetSize(m.width, m.height-1)
+		case viewReview:
+			m.review = m.review.SetSize(m.width, m.height-1)
 		}
 		return m, nil
+	case msgs.OpenReview:
+		m.view = viewReview
+		m.status = ""
+		m.review = reviewview.New(msg.ID, reviewview.Deps{Forge: m.deps.Forge, Store: m.deps.Store, Config: m.deps.Config, Now: m.deps.Now}, m.width, m.height-1)
+		return m, m.review.Init()
 	case msgs.OpenThread:
 		m.view = viewThread
 		m.status = ""
@@ -117,7 +128,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Replies and seen marks change the inbox, so refresh on the way back.
 		left := m.view
 		m.view = viewInbox
-		if left == viewThread && !m.refreshing {
+		if (left == viewThread || left == viewReview) && !m.refreshing {
 			m.refreshing = true
 			return m, m.refresh()
 		}
@@ -197,6 +208,8 @@ func (m Model) updateView(msg tea.Msg) (Model, tea.Cmd) {
 		m.thread, cmd = m.thread.Update(msg)
 	case viewIssue:
 		m.issue, cmd = m.issue.Update(msg)
+	case viewReview:
+		m.review, cmd = m.review.Update(msg)
 	default:
 		m.inbox, cmd = m.inbox.Update(msg)
 	}
@@ -278,6 +291,8 @@ func (m Model) View() string {
 		body = m.thread.View()
 	case viewIssue:
 		body = m.issue.View()
+	case viewReview:
+		body = m.review.View()
 	}
 	if m.triaging {
 		body = overlay(body, m.triage.View(), m.width)
