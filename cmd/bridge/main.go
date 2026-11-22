@@ -52,6 +52,7 @@ func newRootWith(out io.Writer, opts wireOptions) *cobra.Command {
 	root.AddCommand(
 		newInboxCmd(&opts),
 		newThreadCmd(&opts),
+		newReviewCmd(&opts),
 		newTriageCmd(&opts),
 		newIssueCmd(&opts),
 		newAuthCmd(&opts),
