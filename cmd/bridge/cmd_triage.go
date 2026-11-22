@@ -56,6 +56,8 @@ func newTriageCmd(opts *wireOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// GitHub ignores an unknown assignee, so "me" must become a login.
+			ch.AddAssignees, ch.RemoveAssignees = resolveMe(ch.AddAssignees, a.me), resolveMe(ch.RemoveAssignees, a.me)
 			if project != "" {
 				move, err := resolveProject(cmd.Context(), a.forge, ids[0].Repo.Owner, project)
 				if err != nil {
@@ -89,6 +91,17 @@ func newTriageCmd(opts *wireOptions) *cobra.Command {
 	f.BoolVar(&closeIt, "close", false, "close")
 	f.BoolVar(&reopen, "reopen", false, "reopen")
 	return cmd
+}
+
+func resolveMe(logins []string, me string) []string {
+	out := make([]string, 0, len(logins))
+	for _, l := range logins {
+		if strings.EqualFold(l, "me") || l == "@me" {
+			l = me
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 func isEmpty(ch triage.Change) bool {

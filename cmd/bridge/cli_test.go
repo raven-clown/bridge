@@ -280,6 +280,31 @@ func TestThreadCommandShowsHiddenAndReviews(t *testing.T) {
 	}
 }
 
+func TestErrorTextEscapes(t *testing.T) {
+	got := errorText(errors.New("bad \x1b]0;pwned\x07 thing"))
+	if strings.ContainsAny(got, "\x1b\x07") || !strings.HasPrefix(got, "bridge: bad") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestTriageAssignMeResolvesToLogin(t *testing.T) {
+	h := newHarness(t, "")
+	h.fake.Me = "raven"
+	h.fake.Threads[ref(1)] = forge.Thread{Item: forge.Item{ID: ref(1), Assignees: []forge.User{{Login: "raven"}}}}
+	h.fake.Threads[ref(2)] = forge.Thread{Item: forge.Item{ID: ref(2)}}
+	if _, _, err := h.run("triage", "o/a#2", "--assign", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.run("triage", "o/a#1", "--unassign", "me"); err != nil {
+		t.Fatal(err)
+	}
+	two, _ := h.fake.Thread(t.Context(), ref(2))
+	one, _ := h.fake.Thread(t.Context(), ref(1))
+	if len(two.Item.Assignees) != 1 || two.Item.Assignees[0].Login != "raven" || len(one.Item.Assignees) != 0 {
+		t.Fatalf("#2 %+v, #1 %+v", two.Item.Assignees, one.Item.Assignees)
+	}
+}
+
 func TestTriageMultipleRefs(t *testing.T) {
 	h := newHarness(t, "")
 	for _, n := range []int{1, 2} {

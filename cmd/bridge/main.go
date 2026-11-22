@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/raven-clown/bridge/internal/termsafe"
 	"github.com/raven-clown/bridge/internal/tui"
 )
 
@@ -68,7 +69,11 @@ func main() {
 		err = ee.err
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "bridge:", err)
+		fmt.Fprintln(os.Stderr, errorText(err))
 	}
 	os.Exit(code)
 }
+
+// errorText escapes the error, since GitHub's messages can echo text that
+// anyone who opens an issue controls.
+func errorText(err error) string { return "bridge: " + termsafe.Line(err.Error()) }
