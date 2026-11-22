@@ -210,20 +210,26 @@ type Branch struct {
 	HasPR    bool      `json:"has_pr"`
 }
 
+// Thread holds the newest comments; HiddenComments counts older ones that
+// were not fetched.
 type Thread struct {
-	Item          Item           `json:"item"`
-	Body          string         `json:"body"`
-	Comments      []Comment      `json:"comments,omitempty"`
-	ReviewThreads []ReviewThread `json:"review_threads,omitempty"`
-	Events        []Event        `json:"events,omitempty"`
+	Item           Item           `json:"item"`
+	Body           string         `json:"body"`
+	Comments       []Comment      `json:"comments,omitempty"`
+	HiddenComments int            `json:"hidden_comments,omitempty"`
+	ReviewThreads  []ReviewThread `json:"review_threads,omitempty"`
+	Events         []Event        `json:"events,omitempty"`
 }
 
+// Comment.Review is set for a pull request review summary: approved,
+// changes_requested, commented or dismissed.
 type Comment struct {
 	ID      CommentID `json:"id"`
 	Author  User      `json:"author"`
 	At      time.Time `json:"at"`
 	Body    string    `json:"body"`
 	ReplyTo CommentID `json:"reply_to,omitempty"`
+	Review  string    `json:"review,omitempty"`
 }
 
 // ReviewThread.ID is what Comment takes as replyTo to answer inside it.

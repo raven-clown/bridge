@@ -71,8 +71,15 @@ func printThread(w io.Writer, a *app, th forge.Thread) error {
 	if body := strings.TrimSpace(th.Body); body != "" {
 		fmt.Fprintf(&b, "\n%s\n", body)
 	}
+	if th.HiddenComments > 0 {
+		fmt.Fprintf(&b, "\n(%d earlier comments are not shown)\n", th.HiddenComments)
+	}
 	for _, c := range th.Comments {
-		fmt.Fprintf(&b, "\n--- %s, %s ago\n%s\n", line(c.Author.Login), age(a.now(), c.At), strings.TrimSpace(c.Body))
+		who := line(c.Author.Login)
+		if c.Review != "" {
+			who += ", " + strings.ReplaceAll(line(c.Review), "_", " ")
+		}
+		fmt.Fprintf(&b, "\n--- %s, %s ago\n%s\n", who, age(a.now(), c.At), strings.TrimSpace(c.Body))
 	}
 	for _, rt := range th.ReviewThreads {
 		state := ""

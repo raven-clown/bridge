@@ -81,6 +81,22 @@ func TestThreadGolden(t *testing.T) {
 	tuitest.Golden(t, "thread_basic", m.View())
 }
 
+func TestThreadShowsHiddenCountAndReview(t *testing.T) {
+	_, f, s := setup(t)
+	th := f.Threads[id]
+	th.HiddenComments = 40
+	th.Comments = append(th.Comments, forge.Comment{ID: "PRR_1", Author: forge.User{Login: "dave"}, At: now.Add(-30 * time.Minute), Body: "Ship it", Review: "approved"})
+	f.Threads[id] = th
+	m := New(id, Deps{Forge: f, Store: s, Now: func() time.Time { return now }}, 80, 60)
+	for _, msg := range tuitest.Run(m.Init()) {
+		m, _ = m.Update(msg)
+	}
+	view := m.View()
+	if !strings.Contains(view, "40 earlier comments are not shown") || !strings.Contains(view, "dave · approved") {
+		t.Fatalf("view:\n%s", view)
+	}
+}
+
 func TestThreadLoadError(t *testing.T) {
 	f := forgetest.New()
 	s, _ := store.Open(filepath.Join(t.TempDir(), "state"))

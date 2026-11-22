@@ -55,6 +55,35 @@ func TestThreadPR(t *testing.T) {
 	}
 }
 
+func TestThreadNewestCommentsReviewsAndHidden(t *testing.T) {
+	f := newFakeGH(t)
+	f.GraphQL = func(r gqlReq) (int, http.Header, any) {
+		if strings.Contains(r.Query, "projectItems") {
+			return ok(map[string]any{"repository": map[string]any{"issueOrPullRequest": map[string]any{"projectItems": map[string]any{"nodes": []any{}}}}})
+		}
+		if !strings.Contains(r.Query, "comments(last: 100)") || !strings.Contains(r.Query, "reviews(last: 50)") {
+			t.Errorf("query does not ask for the newest comments and reviews")
+		}
+		n := fixture(t, "thread_pr.json")
+		n["allComments"].(map[string]any)["totalCount"] = 130
+		n["reviews"] = map[string]any{"nodes": []any{
+			map[string]any{"id": "PRR_1", "author": map[string]any{"__typename": "User", "login": "carol"}, "submittedAt": "2026-11-21T07:30:00Z", "state": "APPROVED", "body": "LGTM"},
+			map[string]any{"id": "PRR_2", "author": map[string]any{"__typename": "User", "login": "bob"}, "submittedAt": "2026-11-21T07:35:00Z", "state": "COMMENTED", "body": "  "},
+		}}
+		return ok(map[string]any{"repository": map[string]any{"issueOrPullRequest": n}})
+	}
+	th, err := f.client().Thread(context.Background(), pr42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th.HiddenComments != 127 {
+		t.Fatalf("hidden = %d", th.HiddenComments)
+	}
+	if len(th.Comments) != 4 || th.Comments[2].ID != "PRR_1" || th.Comments[2].Review != "approved" || th.Comments[2].Body != "LGTM" {
+		t.Fatalf("comments = %+v", th.Comments)
+	}
+}
+
 func TestThreadIssueHasNoReviewThreads(t *testing.T) {
 	f := newFakeGH(t)
 	f.GraphQL = func(r gqlReq) (int, http.Header, any) {

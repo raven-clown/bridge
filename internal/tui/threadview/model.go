@@ -292,7 +292,11 @@ func (md markdown) render(body string) []string {
 }
 
 func (m Model) commentBlock(md markdown, c forge.Comment, replyTo forge.CommentID, label string) block {
-	head := style.Title.Render(termsafe.Line(c.Author.Login)) + style.Dim.Render(" · "+ago(m.deps.Now(), c.At)+" ago")
+	review := ""
+	if c.Review != "" {
+		review = " · " + strings.ReplaceAll(termsafe.Line(c.Review), "_", " ")
+	}
+	head := style.Title.Render(termsafe.Line(c.Author.Login)) + style.Dim.Render(review+" · "+ago(m.deps.Now(), c.At)+" ago")
 	return block{lines: append([]string{head}, md.render(c.Body)...), replyTo: replyTo, label: label}
 }
 
@@ -326,6 +330,9 @@ func (m Model) build() []block {
 	head = append(head, style.Dim.Render(strings.Join(meta, " · ")))
 	blocks := []block{{lines: append(head, md.render(m.th.Body)...), label: "New comment"}}
 
+	if n := m.th.HiddenComments; n > 0 {
+		blocks = append(blocks, block{lines: []string{style.Dim.Render(fmt.Sprintf("%d earlier comments are not shown · o opens it on GitHub", n))}, passive: true})
+	}
 	type timed struct {
 		at time.Time
 		b  block

@@ -267,6 +267,19 @@ func TestOutputEscapesControlCharacters(t *testing.T) {
 	}
 }
 
+func TestThreadCommandShowsHiddenAndReviews(t *testing.T) {
+	h := newHarness(t, "")
+	h.fake.Threads[ref(5)] = forge.Thread{
+		Item:           forge.Item{ID: ref(5), Title: "Long"},
+		HiddenComments: 12,
+		Comments:       []forge.Comment{{Author: forge.User{Login: "dave"}, At: now, Body: "Ship it", Review: "changes_requested"}},
+	}
+	out, _, err := h.run("thread", "o/a#5")
+	if err != nil || !strings.Contains(out, "12 earlier comments are not shown") || !strings.Contains(out, "dave, changes requested") {
+		t.Fatalf("err %v\n%s", err, out)
+	}
+}
+
 func TestTriageMultipleRefs(t *testing.T) {
 	h := newHarness(t, "")
 	for _, n := range []int{1, 2} {

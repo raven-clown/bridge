@@ -2,13 +2,16 @@ package github
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/raven-clown/bridge/forge"
 )
 
-const fullComments = `allComments: comments(first: 100) { nodes { id author { __typename login } createdAt body } }`
+const fullComments = `allComments: comments(last: 100) { totalCount nodes { id author { __typename login } createdAt body } }`
+
+const reviewSummaries = `reviews(last: 50) { nodes { id author { __typename login } submittedAt state body } }`
 
 const commonEvents = `__typename
 	... on LabeledEvent { createdAt actor { login } label { name } }
@@ -31,7 +34,7 @@ const threadQuery = `query($owner: String!, $name: String!, $number: Int!) {
 					nodes { ` + commonEvents + ` }
 				}
 			}
-			... on PullRequest {` + prFields + ` body ` + fullComments + `
+			... on PullRequest {` + prFields + ` body ` + fullComments + ` ` + reviewSummaries + `
 				reviewThreads(first: 100) { nodes { id path line isResolved comments(first: 50) { nodes { id author { __typename login } createdAt body } } } }
 				timelineItems(first: 100, itemTypes: [LABELED_EVENT, UNLABELED_EVENT, MILESTONED_EVENT, ASSIGNED_EVENT, CLOSED_EVENT, REOPENED_EVENT, MERGED_EVENT, REVIEW_REQUESTED_EVENT]) {
 					nodes { ` + prEvents + ` }
@@ -57,8 +60,18 @@ type threadNode struct {
 	gqlNode
 	Body        string `json:"body"`
 	AllComments struct {
-		Nodes []fullComment `json:"nodes"`
+		TotalCount int           `json:"totalCount"`
+		Nodes      []fullComment `json:"nodes"`
 	} `json:"allComments"`
+	Reviews struct {
+		Nodes []struct {
+			ID          string     `json:"id"`
+			Author      *gqlAuthor `json:"author"`
+			SubmittedAt time.Time  `json:"submittedAt"`
+			State       string     `json:"state"`
+			Body        string     `json:"body"`
+		} `json:"nodes"`
+	} `json:"reviews"`
 	ReviewThreads struct {
 		Nodes []struct {
 			ID         string `json:"id"`
@@ -119,6 +132,17 @@ func (c *Client) Thread(ctx context.Context, id forge.ItemID) (forge.Thread, err
 	for _, cm := range n.AllComments.Nodes {
 		th.Comments = append(th.Comments, cm.toForge())
 	}
+	th.HiddenComments = max(n.AllComments.TotalCount-len(n.AllComments.Nodes), 0)
+	for _, r := range n.Reviews.Nodes {
+		if strings.TrimSpace(r.Body) == "" {
+			continue
+		}
+		th.Comments = append(th.Comments, forge.Comment{
+			ID: forge.CommentID(r.ID), Author: forge.User{Login: r.Author.login(), Bot: r.Author != nil && r.Author.Typename == "Bot"},
+			At: r.SubmittedAt, Body: r.Body, Review: strings.ToLower(r.State),
+		})
+	}
+	sort.SliceStable(th.Comments, func(i, j int) bool { return th.Comments[i].At.Before(th.Comments[j].At) })
 	for _, rt := range n.ReviewThreads.Nodes {
 		t := forge.ReviewThread{ID: forge.CommentID(rt.ID), Path: rt.Path, Line: rt.Line, Resolved: rt.IsResolved}
 		for _, cm := range rt.Comments.Nodes {
